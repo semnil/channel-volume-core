@@ -1,6 +1,5 @@
 {
   "base": [
-    ".github/dependabot.yml",
     ".github/workflows/ci.yaml",
     "gen_icons.py",
     "pack.py",
