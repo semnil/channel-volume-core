@@ -1,0 +1,45 @@
+name: CI
+run-name: ${{ github.ref_name }} CI ✅
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test 🧪
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set Up Node 🟢
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '20'
+
+      - name: Set Up Python 🐍
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      # Before the tests: the ones that need Pillow skip themselves where it is
+      # missing, and a skip holds nothing.
+      - name: Install Pillow 🖼️
+        run: pip install pillow==12.2.0
+        timeout-minutes: 5
+
+      - name: Check Python Syntax 🐍
+        run: python3 -B -c "import ast,pathlib; [ast.parse(p.read_text()) for p in pathlib.Path('shared').glob('*.py')]"
+
+      - name: Run Tests ✅
+        run: node --test test/*.test.cjs test/*.test.mjs
