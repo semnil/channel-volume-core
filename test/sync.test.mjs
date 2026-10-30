@@ -213,7 +213,10 @@ test('check-shared.sh refuses a lock that names no commit', (t) => {
   assert.match(result.stderr, /core\.json locks no commit: main/);
 });
 
-// The groups name every shared file once, and only shared files.
+// The groups name every shared file once, and only shared files. The one
+// file under shared/ no group carries is this repository's own record of the
+// mutants its tests let through, which sweep.mjs reads from beside itself.
+const NOT_SHARED = ['tools/mutation/equivalents.md'];
 test('groups.json and shared/ list the same files', () => {
   const groups = JSON.parse(fs.readFileSync(path.join(ROOT, 'groups.json'), 'utf8'));
   const listed = Object.values(groups).flat();
@@ -227,5 +230,5 @@ test('groups.json and shared/ list the same files', () => {
     }
   };
   walk('');
-  assert.deepEqual([...listed].sort(), held.sort());
+  assert.deepEqual([...listed].sort(), held.filter((file) => !NOT_SHARED.includes(file)).sort());
 });

@@ -283,3 +283,11 @@ test('the record check refuses a list that has moved away from the code', () => 
   }
 });
 
+// The record of the mutants this repository's tests let through names sites
+// the shared files still have.
+test('the mutants the tests let through are still the ones named', () => {
+  const checked = require('node:child_process').spawnSync('node', [SWEEP, '--verify', path.join(__dirname, '..')],
+    { encoding: 'utf8' });
+  assert.equal(checked.status, 0, checked.stderr);
+  assert.match(checked.stdout, /every one of them still a site the code has/);
+});
