@@ -66,7 +66,7 @@ function sweepBox(source) {
     '  const real = fs[name];',
     '  fs[name] = (...args) => {',
     '    if (process.env.INJECT === name) {',
-    '      const err = new Error(code); err.code = code; throw err;',
+    '      const err = new Error(`${code} injected`); err.code = code; throw err;',
     '    }',
     '    return real(...args);',
     '  };',
@@ -102,7 +102,7 @@ function sweepBox(source) {
   // that sweep asked for rather than what the case asks for.
   const boxEnv = (extra) => {
     const env = { ...process.env, ...extra };
-    for (const knob of ['MUTATE_LINES', 'MUTATE_COUNT', 'MUTATE_CONFIRM', 'MUTATE_OPTIONAL', 'MUTATE_SHARD']) {
+    for (const knob of ['MUTATE_LINES', 'MUTATE_COUNT', 'MUTATE_CONFIRM', 'MUTATE_OPTIONAL', 'MUTATE_SHARD', 'MUTATE_TIMEOUT_MS']) {
       if (!extra || !(knob in extra)) delete env[knob];
     }
     return env;
