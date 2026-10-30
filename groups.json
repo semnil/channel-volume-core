@@ -1,0 +1,31 @@
+{
+  "base": [
+    ".github/dependabot.yml",
+    ".github/workflows/ci.yaml",
+    "gen_icons.py",
+    "pack.py",
+    "tools/check-shared.sh",
+    "tools/coverage/v8-to-lcov.mjs",
+    "tools/mutation/bail.mjs",
+    "tools/mutation/sweep-all.sh",
+    "tools/mutation/sweep.mjs"
+  ],
+  "release": [
+    ".github/workflows/release.yaml",
+    ".github/workflows/tag-release.yaml",
+    "tools/check-tag.sh",
+    "tools/tag-plan.sh",
+    "tools/verify-version.sh"
+  ],
+  "auto-merge": [
+    ".github/tests/dependabot-auto-merge-test.sh",
+    ".github/workflows/dependabot-auto-merge-test.yml",
+    ".github/workflows/dependabot-auto-merge.yml"
+  ],
+  "public": [
+    ".github/CODEOWNERS",
+    ".github/FUNDING.yml",
+    ".github/ISSUE_TEMPLATE/bug_report.md",
+    ".github/ISSUE_TEMPLATE/feature_request.md"
+  ]
+}
