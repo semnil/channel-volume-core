@@ -56,6 +56,6 @@ python3 -B -c "import ast,pathlib; [ast.parse(p.read_text()) for p in pathlib.Pa
 ## Conventions
 
 - **Override of the global CLAUDE.md's 「ドキュメント」 language rule**: `README.md` is English and `README.ja.md` is its Japanese counterpart; `CLAUDE.md` is English only
-- A change to a file under `shared/` comes with its tests under `test/` in the same pull request. It reaches the extensions only through `sync.mjs` after it is merged here
+- A change to a file under `shared/` comes with its tests under `test/` in the same pull request. It reaches the extensions only through `sync.mjs` after it is merged here: each extension's Sync Core workflow runs it daily and opens the pull request (README.md, "Changing a shared file"), or it is run by hand
 - This repository is public: its text names only the public extensions
 - Commit messages follow Conventional Commits

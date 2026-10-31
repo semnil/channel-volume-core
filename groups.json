@@ -2,9 +2,11 @@
   "base": [
     ".gitattributes",
     ".github/workflows/ci.yaml",
+    ".github/workflows/sync-core.yaml",
     "gen_icons.py",
     "pack.py",
     "tools/check-shared.sh",
+    "tools/sync-core.sh",
     "tools/coverage/v8-to-lcov.mjs",
     "tools/mutation/bail.mjs",
     "tools/mutation/sweep-all.sh",

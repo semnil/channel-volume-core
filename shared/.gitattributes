@@ -3,9 +3,11 @@
 # and the shell scripts run under bash where git converts line endings.
 /.gitattributes text eol=lf
 /.github/workflows/ci.yaml text eol=lf
+/.github/workflows/sync-core.yaml text eol=lf
 /gen_icons.py text eol=lf
 /pack.py text eol=lf
 /tools/check-shared.sh text eol=lf
+/tools/sync-core.sh text eol=lf
 /tools/coverage/v8-to-lcov.mjs text eol=lf
 /tools/mutation/bail.mjs text eol=lf
 /tools/mutation/sweep-all.sh text eol=lf
