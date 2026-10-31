@@ -12,7 +12,7 @@ The files the channel-volume extensions — [yt-channel-volume](https://github.c
 
 | Group | Files |
 |---|---|
-| `base` | `core/common.js` (the helpers each extension loads ahead of its `utils.js`: gain conversion and display, the catalog lookup, the HTML escape), `pack.py`, `gen_icons.py`, the mutation sweep (`tools/mutation/`), the coverage converter (`tools/coverage/`), `tools/check-shared.sh`, `.github/workflows/ci.yaml`, the daily sync (`.github/workflows/sync-core.yaml`, which runs this repository's `sync-core.sh`) and `.gitattributes`, which checks every shared file out with LF line endings |
+| `base` | `core/common.js` (what each extension loads ahead of its `utils.js`: the settings key and the default Target LUFS, the runtime check, gain conversion and display, the catalog lookup, the HTML escape), `pack.py`, `gen_icons.py`, the mutation sweep (`tools/mutation/`), the coverage converter (`tools/coverage/`), `tools/check-shared.sh`, `.github/workflows/ci.yaml`, the daily sync (`.github/workflows/sync-core.yaml`, which runs this repository's `sync-core.sh`) and `.gitattributes`, which checks every shared file out with LF line endings |
 | `release` | `.github/workflows/release.yaml`, `.github/workflows/tag-release.yaml` and the scripts they run |
 | `auto-merge` | The Dependabot auto-merge workflow and its test |
 | `public` | `CODEOWNERS`, `FUNDING.yml` and the issue templates |

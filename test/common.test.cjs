@@ -1,6 +1,6 @@
-// common.test.cjs — core/common.js, the helpers the extensions load ahead of
-// their utils.js: gain conversion and display, the catalog lookup, and the
-// HTML escape.
+// common.test.cjs — core/common.js, what the extensions load ahead of their
+// utils.js: the settings key and default target, the runtime check, gain
+// conversion and display, the catalog lookup, and the HTML escape.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -29,6 +29,21 @@ const DOCUMENT = {
     }
   })
 };
+
+test('the settings key and the default Target LUFS are the extensions\' values', () => {
+  const c = load();
+  assert.equal(vm.runInContext('SETTINGS_KEY', c), 'autoLoudnessSettings');
+  assert.equal(vm.runInContext('DEFAULT_TARGET_LUFS', c), -18);
+});
+
+test('isContextValid answers whether the runtime can still be reached', () => {
+  assert.equal(load({ chrome: { runtime: { id: 'abc' } } }).isContextValid(), true);
+  assert.equal(load({ chrome: { runtime: {} } }).isContextValid(), false, 'a runtime with no id, as after a reload');
+  assert.equal(load({ chrome: {} }).isContextValid(), false, 'no runtime at all');
+  assert.equal(load().isContextValid(), false, 'no chrome at all');
+  const throwing = { get runtime() { throw new Error('Extension context invalidated.'); } };
+  assert.equal(load({ chrome: throwing }).isContextValid(), false, 'a runtime that throws when asked for');
+});
 
 test('gains turn into percent and dB, and percent back into a gain', () => {
   const c = load();
