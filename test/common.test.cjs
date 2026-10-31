@@ -1,6 +1,7 @@
 // common.test.cjs — core/common.js, what the extensions load ahead of their
 // utils.js: the settings key and default target, the runtime check, gain
-// conversion and display, the catalog lookup, and the HTML escape.
+// conversion and display (Auto's included), the catalog lookup, and the HTML
+// escape.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -65,6 +66,17 @@ test('formatGain shows a gain in the display unit', () => {
   assert.deepEqual({ ...c.formatGain(0.5, 'dB') }, { text: '-6.0', unit: ' dB' });
   assert.deepEqual({ ...c.formatGain(0.5, '%') }, { text: '50', unit: '%' });
   assert.deepEqual({ ...c.formatGain(0.5, undefined) }, { text: '50', unit: '%' }, 'percent where no unit is set');
+});
+
+test('formatAutoGain shows the stored Auto gain, and a dash where none is stored', () => {
+  const c = load();
+  assert.equal(c.formatAutoGain(0.7, '%'), 'Auto (70%)');
+  assert.equal(c.formatAutoGain(0.5, 'dB', '自動'), '自動 (-6.0 dB)', 'in the display unit, under the label given');
+  assert.equal(c.formatAutoGain(0, '%'), 'Auto (0%)', 'a stored silence is a gain');
+  for (const none of [null, undefined, NaN, Infinity, -Infinity, '0.5']) {
+    assert.equal(c.formatAutoGain(none, '%'), 'Auto (—)', `no gain to show: ${String(none)}`);
+    assert.equal(c.formatAutoGain(none, 'dB'), 'Auto (—)');
+  }
 });
 
 test('msg answers the catalog\'s text, or the key where there is none to give', () => {
