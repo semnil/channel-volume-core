@@ -5,7 +5,8 @@
 // gain for a level, the gain a write may store, the stored gain per type, a
 // row's name, label and Auto flags, the worker's write listener and a page's
 // request to it, the slider keys, the catalog lookup, the HTML escape, the
-// gain as one text, the popup's cards, the settings page's error line, and the
+// pages' wording and language, a page's reveal, the gain as one text, the
+// popup's cards, the settings page's error line, and the
 // popup's asking again for the state.
 
 const assert = require('node:assert/strict');
@@ -662,6 +663,38 @@ test('esc makes text safe between tags and inside a quoted attribute', () => {
   assert.equal(c.esc('a "b" & \'c\' <d>'), 'a &quot;b&quot; &amp; &#39;c&#39; &lt;d&gt;');
   assert.equal(c.esc('&quot;'), '&amp;quot;', 'text that looks like a reference stays text');
   assert.equal(c.esc(''), '');
+});
+
+test('applyI18n fills each data-i18n element with its message, or its key, and declares the catalog\'s language', () => {
+  const element = (key) => ({ textContent: key, getAttribute: (name) => (name === 'data-i18n' ? key : null) });
+  const nodes = [element('known'), element('missing')];
+  const html = { lang: 'en' };
+  const c = load({
+    document: { documentElement: html, querySelectorAll: (selector) => (selector === '[data-i18n]' ? nodes : []) },
+    chrome: { i18n: { getMessage: (key) => ({ known: 'Known', pageLanguage: 'ja' })[key] || '' } }
+  });
+  c.applyI18n();
+  assert.deepEqual(nodes.map((node) => node.textContent), ['Known', 'missing'], 'a key the catalog lacks is shown as itself');
+  assert.equal(html.lang, 'ja');
+  const bare = load({ document: { documentElement: html, querySelectorAll: () => [] } });
+  bare.applyI18n();
+  assert.equal(html.lang, 'pageLanguage', 'a catalog with no language declares the key, as any other message');
+});
+
+test('revealPage lays the page out, then takes initializing off on the next frame', () => {
+  const steps = [];
+  const frames = [];
+  const classes = new Set(['initializing', 'other']);
+  const body = {
+    get offsetWidth() { steps.push('layout'); return 0; },
+    classList: { remove: (name) => { steps.push('remove ' + name); classes.delete(name); } }
+  };
+  const c = load({ document: { body }, requestAnimationFrame: (callback) => { steps.push('frame asked'); frames.push(callback); } });
+  c.revealPage();
+  assert.deepEqual(steps, ['layout', 'frame asked'], 'nothing comes off before the frame');
+  assert.ok(classes.has('initializing'));
+  frames.shift()();
+  assert.deepEqual([...classes], ['other'], 'and only initializing comes off at it');
 });
 
 test('formatGainText is the gain\'s number and unit in the display unit, as one text', () => {
