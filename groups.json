@@ -1,5 +1,6 @@
 {
   "base": [
+    ".gitattributes",
     ".github/workflows/ci.yaml",
     "gen_icons.py",
     "pack.py",
