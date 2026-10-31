@@ -2,8 +2,8 @@
 // own scripts: the settings key, the settings read, move and write, the serial
 // queue, the stored map writer, the Target LUFS default and range, the gain
 // range, the runtime check, gain conversion and display (Auto's included), the
-// gain for a level, the stored gain per type, the slider keys, the catalog
-// lookup, and the HTML escape.
+// gain for a level, the gain a write may store, the stored gain per type, the
+// slider keys, the catalog lookup, and the HTML escape.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -399,6 +399,19 @@ test('gainForLevel takes a level to the target, within the gain range', () => {
   }
   assert.equal(c.gainForLevel(-18, -Infinity), 0, 'a target of -Infinity asks for silence');
   assert.ok(Math.abs(c.gainForLevel(null, -18) - Math.pow(10, -18 / 20)) < 1e-12, 'null counts as 0, as the arithmetic has it');
+});
+
+test('isStorableGain takes a finite gain within the range, and clampGain holds one to it', () => {
+  const c = load();
+  for (const gain of [0, 0.5, 1, 6]) assert.equal(c.isStorableGain(gain), true, String(gain));
+  for (const gain of [-0.01, 6.01, 7, -1, NaN, Infinity, -Infinity, null, undefined, '1', true, [], {}]) {
+    assert.equal(c.isStorableGain(gain), false, String(gain));
+  }
+  assert.equal(c.clampGain(7.5), 6);
+  assert.equal(c.clampGain(-1), 0);
+  assert.equal(c.clampGain(2.5), 2.5);
+  assert.equal(c.clampGain(6), 6);
+  assert.equal(c.clampGain(0), 0);
 });
 
 test('storedGain reads a slot, and the single gain of the earlier form only where no slot is a key', () => {
