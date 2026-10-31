@@ -2,6 +2,7 @@
   "base": [
     ".gitattributes",
     ".github/workflows/ci.yaml",
+    ".github/workflows/sync-core.yaml",
     "gen_icons.py",
     "pack.py",
     "tools/check-shared.sh",
