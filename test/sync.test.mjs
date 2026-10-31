@@ -155,6 +155,38 @@ test('a wrong argument list prints the usage', () => {
   }
 });
 
+// A repository whose core.filemode is false keeps the executable bit in its
+// index alone, as git does on Windows: the sync sets it there, a commit made
+// from it carries it, and a check in that repository reads it from there.
+test('where git keeps the executable bit in its index, sync sets it there and check reads it there', (t) => {
+  const { core, extension } = fixture(t);
+  git(extension, 'init', '-q', '-b', 'main');
+  git(extension, 'config', 'core.filemode', 'false');
+  assert.equal(run(core, extension).status, 0);
+  const staged = (file) => git(extension, 'ls-files', '--stage', '--', file).split(/\s/)[0];
+  assert.equal(staged('tools/run.sh'), '100755');
+  assert.equal(staged('pack.py'), '100644');
+  git(extension, 'add', 'core.json');
+  git(extension, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'sync');
+  const fresh = path.join(path.dirname(extension), 'fresh');
+  git(path.dirname(extension), 'clone', '-q', extension, fresh);
+  assert.equal(run('--check', core, fresh).status, 0, 'a fresh checkout of the commit passes the check');
+
+  if (BIT_HELD) {
+    // The bit on disk is not what the check reads here.
+    fs.chmodSync(path.join(extension, 'tools/run.sh'), 0o644);
+    assert.equal(run('--check', core, extension).status, 0);
+  }
+  git(extension, 'update-index', '--chmod=-x', 'tools/run.sh');
+  const unset = run('--check', core, extension);
+  assert.equal(unset.status, 1);
+  assert.match(unset.stderr, /tools\/run\.sh: not executable/);
+  git(extension, 'update-index', '--chmod=+x', 'tools/run.sh', 'pack.py');
+  assert.match(run('--check', core, extension).stderr, /pack\.py: executable/);
+  git(extension, 'rm', '-q', '--cached', 'pack.py');
+  assert.match(run('--check', core, extension).stderr, /pack\.py: not in git's index/);
+});
+
 // check-shared.sh fetches the locked commit and runs that commit's check. The
 // fixture core carries this repository's sync.mjs and check-shared.sh, and
 // answers a fetch for any commit it holds, as GitHub does.

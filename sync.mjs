@@ -12,6 +12,10 @@
 //
 // Both read the files from the commit, not from <core>'s working tree, so the
 // commit core.json names is the one whose files the extension holds.
+//
+// In a git repository whose core.filemode is false, as git sets it on Windows,
+// the executable bit is the one git's index holds: a sync sets it there, and a
+// check reads it from there.
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -45,10 +49,14 @@ function readConfig(extension) {
   return config;
 }
 
+function groupsAt(core, commit) {
+  return JSON.parse(git(core, ['show', `${commit}:groups.json`]).toString('utf8'));
+}
+
 // The paths of the named groups at a commit, each once, in the order
 // groups.json lists them.
 function filesOf(core, commit, groups) {
-  const table = JSON.parse(git(core, ['show', `${commit}:groups.json`]).toString('utf8'));
+  const table = groupsAt(core, commit);
   const files = [];
   for (const group of groups) {
     if (!Object.hasOwn(table, group)) throw new Error(`no group named ${group} at ${commit}`);
@@ -68,16 +76,27 @@ function sharedAt(core, commit, file) {
 // Windows keeps no executable bit for git to compare against.
 const BIT_HELD = process.platform !== 'win32';
 
+// Whether the extension is a git repository whose core.filemode is false.
+function indexHoldsTheBit(extension) {
+  try {
+    return git(extension, ['config', '--type=bool', 'core.filemode']).toString('utf8').trim() === 'false';
+  } catch {
+    return false;
+  }
+}
+
 function sync(core, extension) {
   const config = readConfig(extension);
   const commit = git(core, ['rev-parse', 'HEAD']).toString('utf8').trim();
   const files = filesOf(core, commit, config.core.groups);
   const copies = files.map((file) => ({ file, ...sharedAt(core, commit, file) }));
+  const inIndex = indexHoldsTheBit(extension);
   for (const { file, bytes, executable } of copies) {
     const target = path.join(extension, file);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, bytes);
     if (BIT_HELD) fs.chmodSync(target, executable ? 0o755 : 0o644);
+    if (inIndex) git(extension, ['add', `--chmod=${executable ? '+' : '-'}x`, '--', file]);
     console.log(`  = ${file}`);
   }
   config.core.commit = commit;
@@ -93,6 +112,7 @@ function check(core, extension) {
   }
   const differing = [];
   const files = filesOf(core, commit, config.core.groups);
+  const inIndex = indexHoldsTheBit(extension);
   for (const file of files) {
     const shared = sharedAt(core, commit, file);
     const target = path.join(extension, file);
@@ -103,8 +123,24 @@ function check(core, extension) {
       differing.push(`${file}: missing`);
       continue;
     }
-    if (!held.equals(shared.bytes)) differing.push(`${file}: differs from ${commit}`);
-    else if (BIT_HELD && ((fs.statSync(target).mode & 0o111) !== 0) !== shared.executable) {
+    if (!held.equals(shared.bytes)) {
+      differing.push(`${file}: differs from ${commit}`);
+      continue;
+    }
+    let executable;
+    if (inIndex) {
+      const listed = git(extension, ['ls-files', '--stage', '--', file]).toString('utf8').trim();
+      if (!listed) {
+        differing.push(`${file}: not in git's index`);
+        continue;
+      }
+      executable = listed.split(/\s/)[0] === '100755';
+    } else if (BIT_HELD) {
+      executable = (fs.statSync(target).mode & 0o111) !== 0;
+    } else {
+      continue;
+    }
+    if (executable !== shared.executable) {
       differing.push(`${file}: ${shared.executable ? 'not executable' : 'executable'}, unlike ${commit}`);
     }
   }
