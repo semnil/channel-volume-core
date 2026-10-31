@@ -265,12 +265,14 @@ test('sync-core.sh works from a core cloned the way the workflow clones it', (t)
   assert.equal(JSON.parse(pushed('core.json')).core.commit, head);
 });
 
-test('the sync workflow runs on its schedule or by hand, from the default branch, with the App\'s token, where the App is set up', () => {
+test('the sync workflow runs on its schedule or by hand, one run at a time, from the default branch, with the App\'s token, where the App is set up', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
   const triggers = workflow.slice(workflow.indexOf('\non:\n') + 5, workflow.indexOf('\npermissions:'));
   assert.deepEqual(triggers.match(/^ {2}[\w-]+(?=:)/gm).map((key) => key.trim()), ['schedule', 'workflow_dispatch'],
     'nothing a pull request or a push can start');
   assert.match(workflow, /^ {4}if: vars\.SYNC_APP_CLIENT_ID != ''$/m, 'the job is skipped where the App is not set up');
+  assert.match(workflow, /^concurrency:\n {2}group: sync-core\n {2}cancel-in-progress: false$/m,
+    'one run at a time, in one group whatever branch started it, and a waiting run is not cancelled');
   assert.match(workflow, /^ {6}- uses: actions\/checkout@[0-9a-f]{40} # v[\d.]+\n {8}with:\n {10}ref: \$\{\{ github\.event\.repository\.default_branch \}\}\n {10}token: \$\{\{ steps\.app\.outputs\.token \}\}$/m,
     'the checkout takes the default branch, and pushes with the App\'s token');
   assert.match(workflow, /^ {10}GH_TOKEN: \$\{\{ steps\.app\.outputs\.token \}\}$/m, 'and gh opens the pull request with it');
