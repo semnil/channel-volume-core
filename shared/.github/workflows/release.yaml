@@ -1,0 +1,180 @@
+name: Release
+run-name: ${{ github.ref_name }} release build 🚀
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+  workflow_dispatch:
+
+# One group per ref, so a dispatch on a tag that is already building queues
+# instead of assembling the same draft Release beside it.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  check-event:
+    name: Check Release Tag ☑️
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+      validTag: ${{ steps.check.outputs.validTag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check Tag ☑️
+        id: check
+        run: bash tools/check-tag.sh
+
+  build:
+    name: Build Extension Zip 🧱
+    needs: check-event
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      archive: ${{ steps.pack.outputs.archive }}
+      digest: ${{ steps.pack.outputs.digest }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set Up Node 🟢
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '20'
+
+      - name: Set Up Python 🐍
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      # Before the tests: the ones that need Pillow skip themselves where it is
+      # missing, and a skip holds nothing.
+      - name: Install Pillow 🖼️
+        run: pip install pillow==12.2.0
+        timeout-minutes: 5
+
+      - name: Check Python Syntax 🐍
+        run: python3 -B -c "import ast,pathlib; [ast.parse(p.read_text()) for p in pathlib.Path('.').glob('*.py')]"
+
+      - name: Check The Shared Files 🔗
+        timeout-minutes: 5
+        run: bash tools/check-shared.sh
+
+      - name: Run Unit Tests ✅
+        run: node test.js
+
+      # The steps below run in the extensions that carry the file they run.
+      - name: Run Navigation Tests ✅
+        if: hashFiles('test-navigation.js') != ''
+        run: node test-navigation.js
+
+      - name: Run Screenshot Path Tests ✅
+        if: hashFiles('test-screenshots.py') != ''
+        run: python3 test-screenshots.py
+
+      - name: Check Screenshots 📸
+        if: hashFiles('gen_screenshots.py') != ''
+        timeout-minutes: 5
+        run: python3 gen_screenshots.py --check
+
+      # The tag and the manifest have to agree where a release is made from
+      # them, and nowhere else: a run from a branch has a branch name where the
+      # tag would be, and create-release below reads the same flag.
+      - name: Verify manifest version matches tag 🔍
+        if: needs.check-event.outputs.validTag == 'true'
+        run: bash tools/verify-version.sh
+
+      # What it packed, named and weighed here so the download can be held to
+      # it: an upload that loses or renames the archive is otherwise a green
+      # run with the wrong bytes behind it.
+      - name: Pack Extension 📦
+        id: pack
+        run: |
+          : Pack Extension
+          if [[ "${RUNNER_DEBUG}" ]]; then set -x; fi
+          shopt -s nullglob
+          python pack.py
+          package="$(node -p "require('./core.json').package")"
+          built=( "${package}"-*.zip )
+          if [[ ${#built[@]} -ne 1 ]]; then
+            echo "::error::packing left ${#built[@]} archives, not one: ${built[*]}"
+            exit 1
+          fi
+          echo "package=${package}" >> "$GITHUB_OUTPUT"
+          echo "archive=${built[0]}" >> "$GITHUB_OUTPUT"
+          echo "digest=$(sha256sum "${built[0]}" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Artifacts 📡
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.pack.outputs.package }}-zip
+          path: ${{ steps.pack.outputs.archive }}
+          if-no-files-found: error
+
+  release:
+    name: Check The Archive And Release 🛫
+    needs: [check-event, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Download Build Artifacts 📥
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      # The round trip, run whether or not a release is being made: what the
+      # build packed has to come back under the same name and the same bytes.
+      # Nothing else exercises the upload and the download at all.
+      - name: Check What Came Back 🔍
+        env:
+          PACKED_ARCHIVE: ${{ needs.build.outputs.archive }}
+          PACKED_DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          : Check What Came Back
+          if [[ "${RUNNER_DEBUG}" ]]; then set -x; fi
+          shopt -s nullglob
+          came=( artifacts/*.zip )
+          if [[ ${#came[@]} -ne 1 ]]; then
+            echo "::error::the download holds ${#came[@]} archives, not one: ${came[*]}"
+            exit 1
+          fi
+          name="$(basename "${came[0]}")"
+          if [[ "${name}" != "${PACKED_ARCHIVE}" ]]; then
+            echo "::error::the archive came back as ${name}, packed as ${PACKED_ARCHIVE}"
+            exit 1
+          fi
+          got="$(sha256sum "${came[0]}" | cut -d' ' -f1)"
+          if [[ "${got}" != "${PACKED_DIGEST}" ]]; then
+            echo "::error::the archive came back as ${got}, packed as ${PACKED_DIGEST}"
+            exit 1
+          fi
+          echo "${name} came back as it went: ${got}"
+
+      - name: Create Release 🛫
+        if: needs.check-event.outputs.validTag == 'true'
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          draft: true
+          prerelease: ${{ needs.check-event.outputs.prerelease == 'true' }}
+          tag_name: ${{ needs.check-event.outputs.version }}
+          name: ${{ needs.check-event.outputs.version }}
+          generate_release_notes: true
+          files: |
+            artifacts/*.zip
