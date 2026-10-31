@@ -262,6 +262,23 @@ test('where git keeps the executable bit in its index, sync sets it there and ch
   assert.match(run('--check', core, extension).stderr, /pack\.py: not in git's index/);
 });
 
+test('where git keeps the executable bit in its index, a file already there keeps what is staged for it', (t) => {
+  const { core, extension } = fixture(t);
+  git(extension, 'init', '-q', '-b', 'main');
+  git(extension, 'config', 'core.filemode', 'false');
+  run(core, extension);
+  git(extension, 'add', 'core.json');
+  git(extension, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'sync');
+  write(extension, 'tools/run.sh', '#!/bin/sh\necho staged\n');
+  git(extension, 'update-index', '--chmod=-x', 'tools/run.sh');
+  git(extension, 'add', 'tools/run.sh');
+  git(extension, 'update-index', '--chmod=-x', 'tools/run.sh');
+  assert.equal(run(core, extension).status, 0);
+  assert.equal(git(extension, 'show', ':tools/run.sh'), '#!/bin/sh\necho staged', 'what was staged stays staged');
+  assert.equal(git(extension, 'ls-files', '--stage', '--', 'tools/run.sh').split(/\s/)[0], '100755', 'and the bit is set');
+  assert.equal(fs.readFileSync(path.join(extension, 'tools/run.sh'), 'utf8'), '#!/bin/sh\necho run\n');
+});
+
 // check-shared.sh fetches the locked commit and runs that commit's check. The
 // fixture core carries this repository's sync.mjs and check-shared.sh, and
 // answers a fetch for any commit it holds, as GitHub does.

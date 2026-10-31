@@ -21,7 +21,8 @@
 //
 // In a git repository whose core.filemode is false, as git sets it on Windows,
 // the executable bit is the one git's index holds: a sync sets it there, and a
-// check reads it from there.
+// check reads it from there. A file already in the index keeps what is staged
+// for it and takes the bit alone; a file the index does not hold is added.
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -91,6 +92,17 @@ function indexHoldsTheBit(extension) {
   }
 }
 
+function setIndexBit(extension, file, executable) {
+  const mode = executable ? '100755' : '100644';
+  const listed = git(extension, ['ls-files', '--stage', '--', file]).toString('utf8').trim();
+  if (!listed) {
+    git(extension, ['add', `--chmod=${executable ? '+' : '-'}x`, '--', file]);
+    return;
+  }
+  const [, blob] = listed.split(/\s/);
+  git(extension, ['update-index', '--cacheinfo', `${mode},${blob},${file}`]);
+}
+
 // The files the commit locked before shared that the extension still holds
 // as that commit had them, and that the commit it is moving to does not give it.
 function leftBehind(core, extension, previous, files) {
@@ -131,7 +143,7 @@ function sync(core, extension) {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, bytes);
     if (BIT_HELD) fs.chmodSync(target, executable ? 0o755 : 0o644);
-    if (inIndex) git(extension, ['add', `--chmod=${executable ? '+' : '-'}x`, '--', file]);
+    if (inIndex) setIndexBit(extension, file, executable);
     console.log(`  = ${file}`);
   }
   config.core.commit = commit;
