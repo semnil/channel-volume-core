@@ -1,8 +1,8 @@
 // common.test.cjs — core/common.js, what the extensions load ahead of their
-// own scripts: the settings key, the settings read and move, the serial queue,
-// the Target LUFS default and range, the gain range, the runtime check, gain
-// conversion and display (Auto's included), the gain for a level, the slider
-// keys, the catalog lookup, and the HTML escape.
+// own scripts: the settings key, the settings read, move and write, the serial
+// queue, the Target LUFS default and range, the gain range, the runtime check,
+// gain conversion and display (Auto's included), the gain for a level, the
+// slider keys, the catalog lookup, and the HTML escape.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -187,6 +187,69 @@ test('moveSettingsToSync writes what keep gives, under the key given, and reads 
   const byDefault = storageFor({ local: { autoLoudnessSettings: { displayUnit: 'dB' } } });
   const d = load({ chrome: { storage: byDefault.storage } });
   assert.equal(await d.moveSettingsToSync(), true);
+  assert.equal(JSON.stringify(byDefault.held.sync), '{"autoLoudnessSettings":{"displayUnit":"dB"}}');
+});
+
+test('settingCheck gives a table\'s own check, and nothing for any other name', () => {
+  const c = load();
+  const checks = { displayUnit: (value) => value === '%' || value === 'dB' };
+  assert.equal(c.settingCheck(checks, 'displayUnit'), checks.displayUnit);
+  for (const field of ['targetLufs', 'constructor', 'toString', '__proto__', 'hasOwnProperty', '']) {
+    assert.equal(c.settingCheck(checks, field), null, field);
+  }
+});
+
+test('sameStoredSettings compares field for field', () => {
+  const c = load();
+  assert.equal(c.sameStoredSettings({ a: 1, b: '%' }, { b: '%', a: 1 }), true);
+  assert.equal(c.sameStoredSettings({}, {}), true);
+  assert.equal(c.sameStoredSettings({ a: 1 }, { a: 2 }), false);
+  assert.equal(c.sameStoredSettings({ a: 1 }, { a: 1, b: 2 }), false, 'a field stored and not written');
+  assert.equal(c.sameStoredSettings({ a: 1, b: 2 }, { a: 1 }), false, 'a field written and not stored');
+  assert.equal(c.sameStoredSettings({ a: undefined }, { b: 1 }), false, 'the same count of other fields');
+  for (const stored of [undefined, null, 'x', [], 1]) {
+    assert.equal(c.sameStoredSettings({}, stored), false, JSON.stringify(stored) ?? 'undefined');
+  }
+});
+
+test('writeSettingsChange writes the change of the settings read, and leaves out a write sync holds already', async () => {
+  const c = load();
+  const KEY = 'autoLoudnessSettings';
+  const set = (field, value) => (settings) => ({ ...settings, [field]: value });
+  const fresh = storageFor({ sync: { [KEY]: { targetLufs: -18, displayUnit: '%' } } });
+  assert.equal(JSON.stringify(await c.writeSettingsChange(set('displayUnit', 'dB'), fresh.storage)), '{"targetLufs":-18,"displayUnit":"dB"}');
+  assert.equal(JSON.stringify(fresh.held.sync), '{"autoLoudnessSettings":{"targetLufs":-18,"displayUnit":"dB"}}');
+
+  const same = storageFor({ sync: { [KEY]: { targetLufs: -18, displayUnit: '%' } } });
+  assert.equal(JSON.stringify(await c.writeSettingsChange(set('displayUnit', '%'), same.storage)), '{"targetLufs":-18,"displayUnit":"%"}');
+  assert.deepEqual(same.calls.filter((call) => call.endsWith('.set')), [], 'what sync holds already is not written again');
+
+  // A profile the worker has not moved yet: the write carries local's settings into sync.
+  const unmoved = storageFor({ local: { [KEY]: { targetLufs: -24, displayUnit: '%' } } });
+  await c.writeSettingsChange(set('displayUnit', '%'), unmoved.storage);
+  assert.equal(JSON.stringify(unmoved.held.sync), '{"autoLoudnessSettings":{"targetLufs":-24,"displayUnit":"%"}}', 'a write equal to local\'s copy is still made into sync');
+
+  const none = storageFor();
+  await c.writeSettingsChange(set('targetLufs', -20), none.storage);
+  assert.equal(JSON.stringify(none.held.sync), '{"autoLoudnessSettings":{"targetLufs":-20}}');
+
+  // The change gets a copy: changing it in place does not make the read match.
+  const inPlace = storageFor({ sync: { other: { displayUnit: '%', dropped: true } } });
+  const drop = (settings) => { delete settings.dropped; return settings; };
+  assert.equal(JSON.stringify(await c.writeSettingsChange(drop, inPlace.storage, 'other')), '{"displayUnit":"%"}');
+  assert.equal(JSON.stringify(inPlace.held.sync), '{"other":{"displayUnit":"%"}}', 'what the change drops is written away');
+
+  const thrown = storageFor({ sync: { [KEY]: { targetLufs: -18 } } });
+  await assert.rejects(c.writeSettingsChange(() => { throw new TypeError('not a setting'); }, thrown.storage), /not a setting/);
+  assert.deepEqual(thrown.calls, ['sync.get'], 'a change that throws writes nothing');
+
+  const refused = storageFor();
+  refused.storage.sync.set = async () => { throw new Error('sync quota'); };
+  await assert.rejects(c.writeSettingsChange(set('targetLufs', -20), refused.storage), /sync quota/);
+
+  const byDefault = storageFor();
+  const d = load({ chrome: { storage: byDefault.storage } });
+  await d.writeSettingsChange(set('displayUnit', 'dB'));
   assert.equal(JSON.stringify(byDefault.held.sync), '{"autoLoudnessSettings":{"displayUnit":"dB"}}');
 });
 
