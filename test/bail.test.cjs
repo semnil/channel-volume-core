@@ -62,6 +62,11 @@ for (const runner of RUNNERS) {
     };
     const alive = (processId) => { try { process.kill(processId, 0); return true; } catch { return false; } };
     const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
+    // Until ready() holds or the run has ended: a suite a loaded machine is
+    // slow to start is waited on, not signalled before it is up.
+    const until = async (ready, run) => {
+      while (!ready() && run.endedAt === undefined) await tick();
+    };
     // A process just killed can still be in the table until it is reaped.
     const gone = async (processId) => {
       for (let turn = 0; turn < 100 && alive(processId); turn++) await tick();
@@ -185,7 +190,7 @@ for (const runner of RUNNERS) {
       write('big.js', "require('fs').writeFileSync(process.argv[2], String(process.pid));\nprocess.stdout.write('x'.repeat(4 * 1024 * 1024));\n");
       const slowReader = (idFile, signalled) => async (child, run) => {
         child.stdout.pause();
-        for (let turn = 0; turn < 500 && !(processIdIn(idFile) && !alive(processIdIn(idFile))); turn++) await tick();
+        await until(() => processIdIn(idFile) && !alive(processIdIn(idFile)), run);
         if (!signalled) {
           child.stdout.resume();
           return;
@@ -194,8 +199,9 @@ for (const runner of RUNNERS) {
         child.kill('SIGTERM');
       };
       const signalOnce = (idFile) => async (child, run) => {
-        for (let turn = 0; turn < 500 && !processIdIn(idFile); turn++) await tick();
+        await until(() => processIdIn(idFile), run);
         run.signalledAt = Date.now();
+        run.idAtSignal = processIdIn(idFile);
         child.kill('SIGTERM');
       };
       // Run by `node --test`, this file has NODE_TEST_CONTEXT in its
@@ -212,16 +218,16 @@ for (const runner of RUNNERS) {
         bail([pattern, 'node', 'wait.js'], { during: signalOnce('wait.pid') }),
         bail([pattern, 'node', 'answers.js'], { during: signalOnce('answers.pid') }),
         bail([pattern, 'node', 'gone.js'], {
-          during: async (child) => {
-            for (let turn = 0; turn < 500 && !(processIdIn('left.pid') && processIdIn('gone.pid') && !alive(processIdIn('gone.pid'))); turn++) await tick();
+          during: async (child, run) => {
+            await until(() => processIdIn('left.pid') && processIdIn('gone.pid') && !alive(processIdIn('gone.pid')), run);
             child.kill('SIGTERM');
           }
         }),
         bail([pattern, 'node', 'deaf-below.js'], { during: signalOnce('deaf.pid') }),
         bail([pattern, 'node', 'deaf.js'], { during: signalOnce('deaf-suite.pid') }),
         bail([pattern, 'node', 'unread.js'], {
-          during: async (child) => {
-            for (let turn = 0; turn < 500 && !processIdIn('unread.pid'); turn++) await tick();
+          during: async (child, run) => {
+            await until(() => processIdIn('unread.pid'), run);
             child.stdout.destroy();
             child.stderr.destroy();
             child.kill('SIGTERM');
@@ -241,7 +247,7 @@ for (const runner of RUNNERS) {
       assert.ok(!failed.timedOut && failed.status === 1 && failed.signal === null
         && failed.stderr.includes(runner.failLine),
         `the first failure ends a run that would go on for ever, as failed (${JSON.stringify(failed)})`);
-      const belowWhy = processIdIn('below.pid') > 0 ? await goneOrWhy(processIdIn('below.pid')) : 'no process id';
+      const belowWhy = processIdIn('below.pid') > 0 ? await goneOrWhy(processIdIn('below.pid')) : '; no process id';
       assert.ok(belowWhy === '',
         `and what the suite started goes with it (${processIdIn('below.pid')}${belowWhy})`);
       if (runner.nodeTest) {
@@ -252,7 +258,7 @@ for (const runner of RUNNERS) {
         `a suite a signal took ends the run by that signal (${JSON.stringify(signalled)})`);
       assert.ok(!stopped.timedOut && stopped.status === null && stopped.signal === 'SIGTERM',
         `a signal sent to the run ends it by that signal (${JSON.stringify(stopped)})`);
-      const waitWhy = processIdIn('wait.pid') > 0 ? await goneOrWhy(processIdIn('wait.pid')) : 'no process id';
+      const waitWhy = processIdIn('wait.pid') > 0 ? await goneOrWhy(processIdIn('wait.pid')) : '; no process id';
       assert.ok(waitWhy === '',
         `and reaches the suite (${processIdIn('wait.pid')}${waitWhy}; the run: ${JSON.stringify(stopped)})`);
       assert.ok(!answered.timedOut && answered.status === null && answered.signal === 'SIGTERM',
@@ -262,14 +268,14 @@ for (const runner of RUNNERS) {
         `a signal that finds the suite's group gone still ends the run by it, though what the suite left holds the output (${JSON.stringify(late)})`);
       assert.ok(!held.timedOut && held.status === null && held.signal === 'SIGTERM',
         `a signal ends the run once the suite has ended, though what it started holds the output and outlives the signal (${JSON.stringify(held)})`);
-      const deafWhy = processIdIn('deaf.pid') > 0 ? await goneOrWhy(processIdIn('deaf.pid')) : 'no process id';
+      const deafWhy = processIdIn('deaf.pid') > 0 ? await goneOrWhy(processIdIn('deaf.pid')) : '; no process id';
       assert.ok(deafWhy === '',
         `and that goes with the rest of the suite's group (${processIdIn('deaf.pid')}${deafWhy})`);
       assert.ok(!outlasted.timedOut && outlasted.status === null && outlasted.signal === 'SIGTERM'
         && outlasted.endedAt - outlasted.signalledAt >= 4900,
         `a suite that goes on past a signal is given 5 s, and the run then ends by the signal (${JSON.stringify({ ...outlasted, afterSignalMs: outlasted.endedAt - outlasted.signalledAt })})`);
-      const deafSuiteWhy = processIdIn('deaf-suite.pid') > 0 ? await goneOrWhy(processIdIn('deaf-suite.pid')) : 'no process id';
-      const deafChildWhy = processIdIn('deaf-child.pid') > 0 ? await goneOrWhy(processIdIn('deaf-child.pid')) : 'no process id';
+      const deafSuiteWhy = processIdIn('deaf-suite.pid') > 0 ? await goneOrWhy(processIdIn('deaf-suite.pid')) : '; no process id';
+      const deafChildWhy = processIdIn('deaf-child.pid') > 0 ? await goneOrWhy(processIdIn('deaf-child.pid')) : '; no process id';
       assert.ok(deafSuiteWhy === '' && deafChildWhy === '',
         `and it goes with its group, what it started too (${processIdIn('deaf-suite.pid')}${deafSuiteWhy}, ${processIdIn('deaf-child.pid')}${deafChildWhy})`);
       assert.ok(!unread.timedOut && unread.status === null && unread.signal === 'SIGTERM',
