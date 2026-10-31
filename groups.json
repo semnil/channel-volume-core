@@ -3,6 +3,7 @@
     ".gitattributes",
     ".github/workflows/ci.yaml",
     ".github/workflows/sync-core.yaml",
+    "core/common.js",
     "gen_icons.py",
     "pack.py",
     "tools/check-shared.sh",
