@@ -47,9 +47,13 @@ jobs:
           NODE_V8_COVERAGE: ${{ runner.temp }}/v8-coverage
 
       # The JS sources this repository holds. The tests run them as child
-      # processes, which take NODE_V8_COVERAGE from the environment.
+      # processes, which take NODE_V8_COVERAGE from the environment, some of
+      # them from a copy in a box of their own, which coverage-copies.mjs
+      # counts as the shared file.
       - name: Make The Coverage Report 📊
-        run: node shared/tools/coverage/v8-to-lcov.mjs "$RUNNER_TEMP/v8-coverage" "$RUNNER_TEMP/coverage.lcov" sync.mjs $(git ls-files 'shared/*.mjs')
+        run: |
+          node coverage-copies.mjs "$RUNNER_TEMP/v8-coverage"
+          node shared/tools/coverage/v8-to-lcov.mjs "$RUNNER_TEMP/v8-coverage" "$RUNNER_TEMP/coverage.lcov" sync.mjs $(git ls-files 'shared/*.mjs')
 
       - name: Upload Coverage ☂️
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1

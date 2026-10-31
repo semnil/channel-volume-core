@@ -11,6 +11,7 @@ The files the channel-volume extensions share. Each extension carries a copy of 
 | `sync.mjs` | `node sync.mjs <core> <extension>` writes the files of the extension's groups as `<core>`'s `HEAD` commit holds them (executable bit included) and locks that commit in the extension's `core.json`. `--check <core> <extension>` compares the extension with the commit it locks and exits 1 naming each file that differs, is missing or changed its executable bit. Both read from the commit, never from `<core>`'s working tree |
 | `shared/tools/check-shared.sh` | Run by each extension's CI test job: fetches the locked commit from `https://github.com/semnil/channel-volume-core` (or `CORE_SOURCE`) and runs that commit's `sync.mjs --check` |
 | `test/` | The tests of every shared file and of `sync.mjs` (node:test) |
+| `coverage-copies.mjs` | Run by CI ahead of the coverage report: in the V8 coverage the tests leave, a script run from a test's copy of a file under `shared/tools/mutation/` (`tools/mutation/<name>` in a `cv-…` box under the system's temporary directory) is given that shared file's URL, so `v8-to-lcov.mjs`, which counts a `file:` URL only where it names the source's own path, counts the run for it |
 | `shared/tools/mutation/equivalents.md` | This repository's record of the mutants its tests let through, with what was measured about each. `sweep.mjs` reads it from beside itself, so it sits under `shared/`, but no group carries it: each extension keeps its own record at that path, for its own sources |
 | `.github/dependabot.yml` | Dependabot for this repository's workflows and for `shared/.github/workflows`; the extensions run none |
 
@@ -29,6 +30,7 @@ node --test test/*.test.cjs test/*.test.mjs
 
 # The coverage report CI uploads to Codecov, made locally (<dir> is any empty directory)
 NODE_V8_COVERAGE=<dir> node --test test/*.test.cjs test/*.test.mjs
+node coverage-copies.mjs <dir>
 node shared/tools/coverage/v8-to-lcov.mjs <dir> coverage.lcov sync.mjs $(git ls-files 'shared/*.mjs')
 
 # Sweep one shared file for mutants the tests let through (writes into the tree
