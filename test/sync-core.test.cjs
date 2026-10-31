@@ -65,6 +65,7 @@ function fixture(t, { pr = '', autoMerge = 'true', listFails = false } = {}) {
     '    if [ -n "$GH_LIST_FAILS" ]; then exit 1; fi',
     '    printf \'%s\' "$GH_PR" ;;',
     '  "pr create --base "*|"pr edit sync/channel-volume-core --body "*|"pr merge sync/channel-volume-core --auto --merge") ;;',
+    '  "pr close sync/channel-volume-core --comment "*) ;;',
     '  *) printf \'gh: not a call the real gh takes here: %s\\n\' "$*" >&2; exit 1 ;;',
     'esac',
     ''
@@ -113,8 +114,70 @@ test('sync-core.sh does nothing where core.json locks the core\'s main', (t) => 
   const result = run();
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, `core.json already locks ${git(core, 'rev-parse', 'HEAD')}\n`);
-  assert.doesNotMatch(calls(), /^pr /m, 'no pull request is touched');
+  assert.doesNotMatch(calls(), /^pr (create|edit|merge|close) /m, 'no pull request is touched');
   assert.equal(git(origin, 'branch', '--list', BRANCH), '', 'nothing is pushed');
+});
+
+// The default branch takes the core's main by another way than the sync's
+// pull request: the extension syncs it by hand and pushes it to main.
+function takeByHand({ core, extension }) {
+  git(extension, 'switch', '-q', 'main');
+  execFileSync(process.execPath, [SYNC, core, extension], { encoding: 'utf8' });
+  git(extension, 'add', '-A');
+  git(extension, ...SOMEONE, 'commit', '-q', '-m', 'by hand');
+  git(extension, 'push', '-q', 'origin', 'main');
+}
+
+test('sync-core.sh closes its pull request once the default branch locks the core\'s main by another way', (t) => {
+  const box = fixture(t, { pr: '7' });
+  const { origin, moveCore, run, calls } = box;
+  const head = moveCore('print("two")\n');
+  assert.equal(run().status, 0);
+  takeByHand(box);
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, `core.json already locks ${head}\nclosed the pull request from ${BRANCH}\n`);
+  assert.match(calls(), new RegExp(`^pr close ${BRANCH} --comment core\\.json on main already locks ${head}, channel-volume-core's main, so this pull request has nothing left to take\\.$`, 'm'));
+  assert.equal(git(origin, 'branch', '--list', BRANCH), '', 'and its branch is deleted');
+});
+
+test('sync-core.sh leaves open a fulfilled pull request someone else added to', (t) => {
+  const box = fixture(t, { pr: '7' });
+  const { origin, moveCore, run, calls, addTheirs } = box;
+  moveCore('print("two")\n');
+  assert.equal(run().status, 0);
+  const theirs = addTheirs();
+  takeByHand(box);
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, new RegExp(`the pull request from ${BRANCH} ends in a commit by t@example\\.invalid, committed by t@example\\.invalid; it is left open\n$`));
+  assert.doesNotMatch(calls(), /^pr close /m);
+  assert.equal(git(origin, 'rev-parse', BRANCH), theirs, 'their branch stays');
+});
+
+test('sync-core.sh closes a fulfilled pull request whose branch is already gone', (t) => {
+  const box = fixture(t, { pr: '7' });
+  const { moveCore, run, calls } = box;
+  moveCore('print("two")\n');
+  takeByHand(box);
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(calls(), /^pr close /m);
+});
+
+test('sync-core.sh stops where it cannot read the branch of a fulfilled pull request', (t) => {
+  const box = fixture(t, { pr: '7' });
+  const { box: dir, origin, moveCore, run, calls } = box;
+  moveCore('print("two")\n');
+  assert.equal(run().status, 0);
+  const ours = git(origin, 'rev-parse', BRANCH);
+  takeByHand(box);
+  write(dir, 'broken/git', `#!/usr/bin/env bash\nif [ "$1" = ls-remote ]; then exit 128; fi\nexec ${JSON.stringify(GIT)} "$@"\n`, 0o755);
+  const refused = run({ bin: [path.join(dir, 'broken')] });
+  assert.equal(refused.status, 1);
+  assert.equal(refused.stderr, `origin's ${BRANCH} could not be read (git ls-remote exit 128)\n`);
+  assert.doesNotMatch(calls(), /^pr close /m);
+  assert.equal(git(origin, 'rev-parse', BRANCH), ours, 'the branch stays');
 });
 
 test('sync-core.sh opens the pull request, and turns auto-merge on where the repository allows it', (t) => {

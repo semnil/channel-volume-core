@@ -12,11 +12,34 @@
 # else made or committed is left as it is, and the run fails naming them; so
 # does a branch that moves while the run is under way, and a run that cannot
 # read the branch. Where the repository allows auto-merge, the pull request
-# merges once its checks pass.
+# merges once its checks pass. Where core.json already locks main, a pull
+# request still open from the branch has nothing left to take: it is closed
+# and the branch deleted, unless someone else made or committed the branch's
+# last commit, in which case it is left open.
 set -euo pipefail
 
 core="${1:?usage: bash sync-core.sh <clone of channel-volume-core>}"
 branch='sync/channel-volume-core'
+
+# What the branch holds now: its commit in remote and who made and committed
+# that commit in made, both empty where there is no branch. A branch that
+# cannot be read stops the run.
+read_branch() {
+  local listed=0 listing
+  listing="$(git ls-remote --exit-code --heads origin "refs/heads/${branch}")" || listed=$?
+  case "${listed}" in
+    0)
+      remote="${listing%%[[:space:]]*}"
+      git fetch -q origin "${remote}"
+      made="$(git log -1 --format='%ae %ce' "${remote}")"
+      ;;
+    2) remote=''; made='' ;;
+    *)
+      echo "origin's ${branch} could not be read (git ls-remote exit ${listed})" >&2
+      exit 1
+      ;;
+  esac
+}
 
 default="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)"
 current="$(git rev-parse --abbrev-ref HEAD)"
@@ -29,6 +52,19 @@ head="$(git -C "${core}" rev-parse HEAD)"
 locked="$(node -p "require('./core.json').core.commit")"
 if [[ "${head}" == "${locked}" ]]; then
   echo "core.json already locks ${head}"
+  open="$(gh pr list --head "${branch}" --state open --json number --jq '.[].number')"
+  if [[ -n "${open}" ]]; then
+    read_branch
+    if [[ -n "${remote}" && "${made}" != "${SYNC_GIT_EMAIL} ${SYNC_GIT_EMAIL}" ]]; then
+      echo "the pull request from ${branch} ends in a commit by ${made% *}, committed by ${made#* }; it is left open"
+      exit 0
+    fi
+    gh pr close "${branch}" --comment "core.json on ${default} already locks ${head}, channel-volume-core's main, so this pull request has nothing left to take."
+    if [[ -n "${remote}" ]]; then
+      git push -q --force-with-lease="refs/heads/${branch}:${remote}" origin ":refs/heads/${branch}"
+    fi
+    echo "closed the pull request from ${branch}"
+  fi
   exit 0
 fi
 
@@ -40,25 +76,11 @@ if [[ "${auto_merge}" != 'true' && "${auto_merge}" != 'false' ]]; then
   exit 1
 fi
 
-# What the branch holds now: its commit, or nothing where there is no branch.
-listed=0
-listing="$(git ls-remote --exit-code --heads origin "refs/heads/${branch}")" || listed=$?
-case "${listed}" in
-  0)
-    remote="${listing%%[[:space:]]*}"
-    git fetch -q origin "${remote}"
-    made="$(git log -1 --format='%ae %ce' "${remote}")"
-    if [[ "${made}" != "${SYNC_GIT_EMAIL} ${SYNC_GIT_EMAIL}" ]]; then
-      echo "${branch} ends in a commit by ${made% *}, committed by ${made#* }; it is left as it is" >&2
-      exit 1
-    fi
-    ;;
-  2) remote='' ;;
-  *)
-    echo "origin's ${branch} could not be read (git ls-remote exit ${listed})" >&2
-    exit 1
-    ;;
-esac
+read_branch
+if [[ -n "${remote}" && "${made}" != "${SYNC_GIT_EMAIL} ${SYNC_GIT_EMAIL}" ]]; then
+  echo "${branch} ends in a commit by ${made% *}, committed by ${made#* }; it is left as it is" >&2
+  exit 1
+fi
 
 git switch -q -C "${branch}"
 node "${core}/sync.mjs" "${core}" .
