@@ -211,6 +211,16 @@ test('a copy that differs from the commit that shared it is the extension\'s own
   assert.equal(fs.existsSync(path.join(extension, '.github/extra.yml')), false);
 });
 
+test('sync replaces a lock that names no commit, with nothing to compare it against', (t) => {
+  const { core, extension, commit } = fixture(t);
+  for (const lock of ['nope', 'a'.repeat(39)]) {
+    write(extension, 'core.json', JSON.stringify({ core: { groups: ['base'], commit: lock } }));
+    const result = run(core, extension);
+    assert.equal(result.status, 0, `${lock}: ${result.stderr}`);
+    assert.equal(lockOf(extension), commit);
+  }
+});
+
 test('sync refuses a locked commit the core it copies from does not have', (t) => {
   const { core, extension } = fixture(t);
   write(extension, 'core.json', JSON.stringify({ core: { groups: ['base'], commit: 'a'.repeat(40) } }));
