@@ -32,6 +32,14 @@ if [[ "${head}" == "${locked}" ]]; then
   exit 0
 fi
 
+# Whether the repository allows auto-merge, read before anything is pushed: a
+# setting that cannot be read stops the run.
+auto_merge="$(gh api 'repos/{owner}/{repo}' --jq .allow_auto_merge)"
+if [[ "${auto_merge}" != 'true' && "${auto_merge}" != 'false' ]]; then
+  echo "the repository's auto-merge setting could not be read (got '${auto_merge}')" >&2
+  exit 1
+fi
+
 # What the branch holds now: its commit, or nothing where there is no branch.
 listed=0
 listing="$(git ls-remote --exit-code --heads origin "refs/heads/${branch}")" || listed=$?
@@ -62,11 +70,12 @@ git push -q --force-with-lease="refs/heads/${branch}:${remote}" origin "HEAD:ref
 body="channel-volume-core's main has moved from ${locked} to ${head}: https://github.com/semnil/channel-volume-core/compare/${locked}...${head}
 
 This pull request copies the shared files as ${head} holds them and locks that commit in core.json."
-if [[ -n "$(gh pr list --head "${branch}" --state open --json number --jq '.[].number')" ]]; then
+open="$(gh pr list --head "${branch}" --state open --json number --jq '.[].number')"
+if [[ -n "${open}" ]]; then
   gh pr edit "${branch}" --body "${body}"
 else
   gh pr create --base "${default}" --head "${branch}" --title 'chore: take the shared files from channel-volume-core' --body "${body}"
 fi
-if [[ "$(gh repo view --json autoMergeAllowed --jq .autoMergeAllowed)" == 'true' ]]; then
+if [[ "${auto_merge}" == 'true' ]]; then
   gh pr merge "${branch}" --auto --merge
 fi

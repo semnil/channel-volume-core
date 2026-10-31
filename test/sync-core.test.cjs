@@ -29,8 +29,10 @@ function write(dir, file, text, mode) {
 
 // A core whose one shared file is at its first commit, and an extension that
 // locks that commit, pushed to a bare origin. gh is a fake that writes its
-// arguments to a log and answers `pr list` and `repo view` as the case asks.
-function fixture(t, { pr = '', autoMerge = 'true' } = {}) {
+// arguments to a log and answers the calls the script makes as the case asks.
+// It knows only the calls the real gh 2.103 takes, with the fields it has: any
+// other call exits 1, as the real gh does for an unknown --json field.
+function fixture(t, { pr = '', autoMerge = 'true', listFails = false } = {}) {
   const box = tempDir('cv-sync-core-');
   t.after(() => fs.rmSync(box, { recursive: true, force: true }));
   const core = path.join(box, 'core');
@@ -57,9 +59,13 @@ function fixture(t, { pr = '', autoMerge = 'true' } = {}) {
     '#!/usr/bin/env bash',
     'printf \'%s\\n\' "$*" >> "$GH_LOG"',
     'case "$*" in',
-    '  "pr list"*) printf \'%s\' "$GH_PR" ;;',
-    '  "repo view --json defaultBranchRef"*) printf \'main\\n\' ;;',
-    '  "repo view --json autoMergeAllowed"*) printf \'%s\\n\' "$GH_AUTO_MERGE" ;;',
+    '  "repo view --json defaultBranchRef --jq .defaultBranchRef.name") printf \'main\\n\' ;;',
+    '  "api repos/{owner}/{repo} --jq .allow_auto_merge") printf \'%s\\n\' "$GH_AUTO_MERGE" ;;',
+    '  "pr list --head sync/channel-volume-core --state open --json number --jq .[].number")',
+    '    if [ -n "$GH_LIST_FAILS" ]; then exit 1; fi',
+    '    printf \'%s\' "$GH_PR" ;;',
+    '  "pr create --base "*|"pr edit sync/channel-volume-core --body "*|"pr merge sync/channel-volume-core --auto --merge") ;;',
+    '  *) printf \'gh: not a call the real gh takes here: %s\\n\' "$*" >&2; exit 1 ;;',
     'esac',
     ''
   ].join('\n'), 0o755);
@@ -81,6 +87,7 @@ function fixture(t, { pr = '', autoMerge = 'true' } = {}) {
         GH_LOG: log,
         GH_PR: pr,
         GH_AUTO_MERGE: autoMerge,
+        GH_LIST_FAILS: listFails ? '1' : '',
         SYNC_GIT_NAME: BOT.name,
         SYNC_GIT_EMAIL: BOT.email
       }
@@ -139,6 +146,24 @@ test('sync-core.sh updates the open pull request, and leaves auto-merge off wher
   assert.match(log, new RegExp(`^pr edit ${BRANCH} --body channel-volume-core's main has moved from `, 'm'));
   assert.doesNotMatch(log, /^pr create /m);
   assert.doesNotMatch(log, /^pr merge /m);
+});
+
+test('sync-core.sh stops before it pushes where the auto-merge setting cannot be read', (t) => {
+  const { origin, moveCore, run, calls } = fixture(t, { autoMerge: '' });
+  moveCore('print("two")\n');
+  const refused = run();
+  assert.equal(refused.status, 1);
+  assert.equal(refused.stderr, "the repository's auto-merge setting could not be read (got '')\n");
+  assert.equal(git(origin, 'branch', '--list', BRANCH), '', 'nothing is pushed');
+  assert.doesNotMatch(calls(), /^pr /m);
+});
+
+test('sync-core.sh stops where the open pull requests cannot be listed', (t) => {
+  const { moveCore, run, calls } = fixture(t, { listFails: true });
+  moveCore('print("two")\n');
+  const refused = run();
+  assert.notEqual(refused.status, 0);
+  assert.doesNotMatch(calls(), /^pr (create|edit|merge) /m, 'no pull request is opened, edited or merged');
 });
 
 test('sync-core.sh writes its own branch anew, and leaves one someone else added to', (t) => {
