@@ -70,7 +70,7 @@ function fixture(t, { prs = [], autoMerge = 'true', listFails = false } = {}) {
     '    if [ -n "$GH_LIST_FAILS" ]; then exit 1; fi',
     '    printf \'%s\' "$GH_PRS" | jq -r "${@: -1}" ;;',
     '  "pr create --base "*|"pr edit sync/channel-volume-core --body "*|"pr merge sync/channel-volume-core --auto --merge") ;;',
-    '  "pr close sync/channel-volume-core --comment "*) ;;',
+    '  "pr comment 7 --body "*|"pr close 7") ;;',
     '  *) printf \'gh: not a call the real gh takes here: %s\\n\' "$*" >&2; exit 1 ;;',
     'esac',
     ''
@@ -142,7 +142,8 @@ test('sync-core.sh closes its pull request once the default branch locks the cor
   const result = run();
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, `core.json already locks ${head}\nclosed the pull request from ${BRANCH}\n`);
-  assert.match(calls(), new RegExp(`^pr close ${BRANCH} --comment core\\.json on main already locks ${head}, channel-volume-core's main, so this pull request has nothing left to take\\.$`, 'm'));
+  assert.match(calls(), new RegExp(`^pr comment 7 --body core\\.json on main already locks ${head}, channel-volume-core's main, so this pull request has nothing left to take\\.$`, 'm'));
+  assert.match(calls(), /^pr close 7$/m, 'its own, not the fork\'s');
   assert.equal(git(origin, 'branch', '--list', BRANCH), '', 'and its branch is deleted');
 });
 
@@ -167,7 +168,53 @@ test('sync-core.sh closes a fulfilled pull request whose branch is already gone'
   takeByHand(box);
   const result = run();
   assert.equal(result.status, 0, result.stderr);
-  assert.match(calls(), /^pr close /m);
+  assert.match(calls(), /^pr comment 7 /m);
+  assert.match(calls(), /^pr close 7$/m);
+});
+
+test('sync-core.sh leaves a fulfilled pull request open where its branch cannot be deleted', (t) => {
+  const box = fixture(t, { prs: [OURS] });
+  const { origin, moveCore, run, calls } = box;
+  moveCore('print("two")\n');
+  assert.equal(run().status, 0);
+  const ours = git(origin, 'rev-parse', BRANCH);
+  takeByHand(box);
+  write(origin, 'hooks/pre-receive', '#!/usr/bin/env bash\necho refused >&2\nexit 1\n', 0o755);
+  const refused = run();
+  assert.notEqual(refused.status, 0, 'the deletion is refused');
+  assert.doesNotMatch(calls(), /^pr (comment|close) /m, 'the pull request is not touched');
+  assert.equal(git(origin, 'rev-parse', BRANCH), ours, 'the branch stays');
+});
+
+test('sync-core.sh leaves a fulfilled pull request open where a commit reaches its branch after the run reads it', (t) => {
+  const box = fixture(t, { prs: [OURS] });
+  const { box: dir, origin, extension, moveCore, run, calls } = box;
+  moveCore('print("two")\n');
+  assert.equal(run().status, 0);
+  git(extension, 'fetch', '-q', 'origin', BRANCH);
+  git(extension, 'switch', '-q', '-C', 'theirs', 'FETCH_HEAD');
+  write(extension, 'notes.txt', 'a fix of their own\n');
+  git(extension, 'add', 'notes.txt');
+  git(extension, ...SOMEONE, 'commit', '-q', '-m', 'theirs');
+  const theirs = git(extension, 'rev-parse', 'HEAD');
+  takeByHand(box);
+  // Their commit reaches origin from a git that pushes it ahead of the run's
+  // first push: after the run has read the branch, before the deletion.
+  const mark = path.join(dir, 'pushed-theirs');
+  write(dir, 'racing/git', [
+    '#!/usr/bin/env bash',
+    `if [ "$1" = push ] && [ ! -e ${JSON.stringify(mark)} ]; then`,
+    `  : > ${JSON.stringify(mark)}`,
+    `  ${JSON.stringify(GIT)} push -q origin theirs:refs/heads/${BRANCH} || exit 1`,
+    'fi',
+    `exec ${JSON.stringify(GIT)} "$@"`,
+    ''
+  ].join('\n'), 0o755);
+  const refused = run({ bin: [path.join(dir, 'racing')] });
+  assert.ok(fs.existsSync(mark), 'their commit was pushed during the run');
+  assert.notEqual(refused.status, 0, 'the deletion is refused');
+  assert.doesNotMatch(calls(), /^pr (comment|close) /m, 'the pull request is not touched');
+  assert.equal(git(origin, 'rev-parse', BRANCH), theirs, 'their commit stays at the head');
 });
 
 test('sync-core.sh leaves alone a fork\'s pull request from a branch of the same name', (t) => {

@@ -13,10 +13,12 @@
 # does a branch that moves while the run is under way, and a run that cannot
 # read the branch. Where the repository allows auto-merge, the pull request
 # merges once its checks pass. Where core.json already locks main, a pull
-# request still open from the branch has nothing left to take: it is closed
-# and the branch deleted, unless someone else made or committed the branch's
-# last commit, in which case it is left open. A fork's pull request from a
-# branch of the same name is not the run's: it is neither updated nor closed.
+# request still open from the branch has nothing left to take: the branch is
+# deleted and the pull request closed with a comment, unless someone else made
+# or committed the branch's last commit, in which case it is left open. A
+# branch that moves before it is deleted, or that cannot be deleted, stops the
+# run with the pull request open. A fork's pull request from a branch of the
+# same name is not the run's: it is neither updated nor closed.
 set -euo pipefail
 
 core="${1:?usage: bash sync-core.sh <clone of channel-volume-core>}"
@@ -67,10 +69,15 @@ if [[ "${head}" == "${locked}" ]]; then
       echo "the pull request from ${branch} ends in a commit by ${made% *}, committed by ${made#* }; it is left open"
       exit 0
     fi
-    gh pr close "${branch}" --comment "core.json on ${default} already locks ${head}, channel-volume-core's main, so this pull request has nothing left to take."
+    # The branch goes first, under a lease on the commit read: a commit that
+    # reaches it after the read, or a deletion that fails, stops the run before
+    # the pull request is touched. gh pr close ends without error on a pull
+    # request already closed.
     if [[ -n "${remote}" ]]; then
       git push -q --force-with-lease="refs/heads/${branch}:${remote}" origin ":refs/heads/${branch}"
     fi
+    gh pr comment "${open}" --body "core.json on ${default} already locks ${head}, channel-volume-core's main, so this pull request has nothing left to take."
+    gh pr close "${open}"
     echo "closed the pull request from ${branch}"
   fi
   exit 0
