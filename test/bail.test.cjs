@@ -62,6 +62,11 @@ for (const runner of RUNNERS) {
     };
     const alive = (processId) => { try { process.kill(processId, 0); return true; } catch { return false; } };
     const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
+    // Until ready() holds or the run has ended: a suite a loaded machine is
+    // slow to start is waited on, not signalled before it is up.
+    const until = async (ready, run) => {
+      while (!ready() && run.endedAt === undefined) await tick();
+    };
     // A process just killed can still be in the table until it is reaped.
     const gone = async (processId) => {
       for (let turn = 0; turn < 100 && alive(processId); turn++) await tick();
@@ -185,7 +190,7 @@ for (const runner of RUNNERS) {
       write('big.js', "require('fs').writeFileSync(process.argv[2], String(process.pid));\nprocess.stdout.write('x'.repeat(4 * 1024 * 1024));\n");
       const slowReader = (idFile, signalled) => async (child, run) => {
         child.stdout.pause();
-        for (let turn = 0; turn < 500 && !(processIdIn(idFile) && !alive(processIdIn(idFile))); turn++) await tick();
+        await until(() => processIdIn(idFile) && !alive(processIdIn(idFile)), run);
         if (!signalled) {
           child.stdout.resume();
           return;
@@ -194,8 +199,9 @@ for (const runner of RUNNERS) {
         child.kill('SIGTERM');
       };
       const signalOnce = (idFile) => async (child, run) => {
-        for (let turn = 0; turn < 500 && !processIdIn(idFile); turn++) await tick();
+        await until(() => processIdIn(idFile), run);
         run.signalledAt = Date.now();
+        run.idAtSignal = processIdIn(idFile);
         child.kill('SIGTERM');
       };
       // Run by `node --test`, this file has NODE_TEST_CONTEXT in its
@@ -212,16 +218,16 @@ for (const runner of RUNNERS) {
         bail([pattern, 'node', 'wait.js'], { during: signalOnce('wait.pid') }),
         bail([pattern, 'node', 'answers.js'], { during: signalOnce('answers.pid') }),
         bail([pattern, 'node', 'gone.js'], {
-          during: async (child) => {
-            for (let turn = 0; turn < 500 && !(processIdIn('left.pid') && processIdIn('gone.pid') && !alive(processIdIn('gone.pid'))); turn++) await tick();
+          during: async (child, run) => {
+            await until(() => processIdIn('left.pid') && processIdIn('gone.pid') && !alive(processIdIn('gone.pid')), run);
             child.kill('SIGTERM');
           }
         }),
         bail([pattern, 'node', 'deaf-below.js'], { during: signalOnce('deaf.pid') }),
         bail([pattern, 'node', 'deaf.js'], { during: signalOnce('deaf-suite.pid') }),
         bail([pattern, 'node', 'unread.js'], {
-          during: async (child) => {
-            for (let turn = 0; turn < 500 && !processIdIn('unread.pid'); turn++) await tick();
+          during: async (child, run) => {
+            await until(() => processIdIn('unread.pid'), run);
             child.stdout.destroy();
             child.stderr.destroy();
             child.kill('SIGTERM');
