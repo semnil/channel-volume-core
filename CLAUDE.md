@@ -27,6 +27,10 @@ An extension's `core.json`:
 # Run the tests
 node --test test/*.test.cjs test/*.test.mjs
 
+# The coverage report CI uploads to Codecov, made locally (<dir> is any empty directory)
+NODE_V8_COVERAGE=<dir> node --test test/*.test.cjs test/*.test.mjs
+node shared/tools/coverage/v8-to-lcov.mjs <dir> coverage.lcov sync.mjs $(git ls-files 'shared/*.mjs')
+
 # Sweep one shared file for mutants the tests let through (writes into the tree
 # it is given, so give it a worktree rather than the checkout being worked in).
 # The tests run through bail.mjs, which stops what a run started when the run is
