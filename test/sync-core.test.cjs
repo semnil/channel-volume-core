@@ -1,5 +1,5 @@
-// sync-core.test.cjs — sync-core.sh opens or updates the pull request that
-// takes channel-volume-core's main into an extension, and the workflow that
+// sync-core.test.cjs — sync-core.sh opens, updates or closes the pull request
+// that takes channel-volume-core's main into an extension, and the workflow that
 // runs it starts only on its schedule or by hand, from the default branch,
 // with the App's token.
 
@@ -17,6 +17,11 @@ const WORKFLOW = shared('.github', 'workflows', 'sync-core.yaml');
 const BRANCH = 'sync/channel-volume-core';
 const BOT = { name: 'sync-app[bot]', email: '1+sync-app[bot]@users.noreply.github.com' };
 const SOMEONE = ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid'];
+// The run's own open pull request, and a fork's from a branch of the same name.
+const OURS = { number: 7, isCrossRepository: false };
+const FORKS = { number: 9, isCrossRepository: true };
+// The URL the fake gh pr create prints for the pull request it opens.
+const CREATED = 'https://github.com/semnil/extension/pull/8';
 const GIT = spawnSync('bash', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
 
 const git = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
@@ -29,10 +34,12 @@ function write(dir, file, text, mode) {
 
 // A core whose one shared file is at its first commit, and an extension that
 // locks that commit, pushed to a bare origin. gh is a fake that writes its
-// arguments to a log and answers the calls the script makes as the case asks.
-// It knows only the calls the real gh 2.103 takes, with the fields it has: any
-// other call exits 1, as the real gh does for an unknown --json field.
-function fixture(t, { pr = '', autoMerge = 'true', listFails = false } = {}) {
+// arguments to a log and answers the calls the script makes as the case asks:
+// pr list runs the call's --jq filter, with jq, on the open pull requests the
+// case gives. It knows only the calls the real gh 2.103 takes, with the fields
+// it has: any other call exits 1, as the real gh does for an unknown --json
+// field.
+function fixture(t, { prs = [], autoMerge = 'true', listFails = false } = {}) {
   const box = tempDir('cv-sync-core-');
   t.after(() => fs.rmSync(box, { recursive: true, force: true }));
   const core = path.join(box, 'core');
@@ -61,10 +68,12 @@ function fixture(t, { pr = '', autoMerge = 'true', listFails = false } = {}) {
     'case "$*" in',
     '  "repo view --json defaultBranchRef --jq .defaultBranchRef.name") printf \'main\\n\' ;;',
     '  "api repos/{owner}/{repo} --jq .allow_auto_merge") printf \'%s\\n\' "$GH_AUTO_MERGE" ;;',
-    '  "pr list --head sync/channel-volume-core --state open --json number --jq .[].number")',
+    '  "pr list --head sync/channel-volume-core --base main --state open --json number,isCrossRepository --jq .[] | select(.isCrossRepository | not) | .number")',
     '    if [ -n "$GH_LIST_FAILS" ]; then exit 1; fi',
-    '    printf \'%s\' "$GH_PR" ;;',
-    '  "pr create --base "*|"pr edit sync/channel-volume-core --body "*|"pr merge sync/channel-volume-core --auto --merge") ;;',
+    '    printf \'%s\' "$GH_PRS" | jq -r "${@: -1}" ;;',
+    '  "pr create --base main --head sync/channel-volume-core "*) printf \'%s\\n\' "$GH_CREATED" ;;',
+    '  "pr edit 7 --body "*|"pr merge 7 --auto --merge"|"pr merge $GH_CREATED --auto --merge") ;;',
+    '  "pr comment 7 --body "*|"pr close 7") ;;',
     '  *) printf \'gh: not a call the real gh takes here: %s\\n\' "$*" >&2; exit 1 ;;',
     'esac',
     ''
@@ -85,7 +94,8 @@ function fixture(t, { pr = '', autoMerge = 'true', listFails = false } = {}) {
         ...process.env,
         PATH: [...bin, path.join(box, 'bin'), process.env.PATH].join(path.delimiter),
         GH_LOG: log,
-        GH_PR: pr,
+        GH_PRS: JSON.stringify(prs),
+        GH_CREATED: CREATED,
         GH_AUTO_MERGE: autoMerge,
         GH_LIST_FAILS: listFails ? '1' : '',
         SYNC_GIT_NAME: BOT.name,
@@ -113,8 +123,132 @@ test('sync-core.sh does nothing where core.json locks the core\'s main', (t) => 
   const result = run();
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, `core.json already locks ${git(core, 'rev-parse', 'HEAD')}\n`);
-  assert.doesNotMatch(calls(), /^pr /m, 'no pull request is touched');
+  assert.doesNotMatch(calls(), /^pr (create|edit|merge|close) /m, 'no pull request is touched');
   assert.equal(git(origin, 'branch', '--list', BRANCH), '', 'nothing is pushed');
+});
+
+// The default branch takes the core's main by another way than the sync's
+// pull request: the extension syncs it by hand and pushes it to main.
+function takeByHand({ core, extension }) {
+  git(extension, 'switch', '-q', 'main');
+  execFileSync(process.execPath, [SYNC, core, extension], { encoding: 'utf8' });
+  git(extension, 'add', '-A');
+  git(extension, ...SOMEONE, 'commit', '-q', '-m', 'by hand');
+  git(extension, 'push', '-q', 'origin', 'main');
+}
+
+test('sync-core.sh closes its pull request once the default branch locks the core\'s main by another way', (t) => {
+  const box = fixture(t, { prs: [FORKS, OURS] });
+  const { origin, moveCore, run, calls } = box;
+  const head = moveCore('print("two")\n');
+  assert.equal(run().status, 0);
+  takeByHand(box);
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, `core.json already locks ${head}\nclosed the pull request from ${BRANCH}\n`);
+  assert.match(calls(), new RegExp(`^pr comment 7 --body core\\.json on main already locks ${head}, channel-volume-core's main, so this pull request has nothing left to take\\.$`, 'm'));
+  assert.match(calls(), /^pr close 7$/m, 'its own, not the fork\'s');
+  assert.equal(git(origin, 'branch', '--list', BRANCH), '', 'and its branch is deleted');
+});
+
+test('sync-core.sh leaves open a fulfilled pull request someone else added to', (t) => {
+  const box = fixture(t, { prs: [OURS] });
+  const { origin, moveCore, run, calls, addTheirs } = box;
+  moveCore('print("two")\n');
+  assert.equal(run().status, 0);
+  const theirs = addTheirs();
+  takeByHand(box);
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, new RegExp(`the pull request from ${BRANCH} ends in a commit by t@example\\.invalid, committed by t@example\\.invalid; it is left open\n$`));
+  assert.doesNotMatch(calls(), /^pr (comment|close) /m);
+  assert.equal(git(origin, 'rev-parse', BRANCH), theirs, 'their branch stays');
+});
+
+test('sync-core.sh closes a fulfilled pull request whose branch is already gone', (t) => {
+  const box = fixture(t, { prs: [OURS] });
+  const { moveCore, run, calls } = box;
+  moveCore('print("two")\n');
+  takeByHand(box);
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(calls(), /^pr comment 7 /m);
+  assert.match(calls(), /^pr close 7$/m);
+});
+
+test('sync-core.sh leaves a fulfilled pull request open where its branch cannot be deleted', (t) => {
+  const box = fixture(t, { prs: [OURS] });
+  const { origin, moveCore, run, calls } = box;
+  moveCore('print("two")\n');
+  assert.equal(run().status, 0);
+  const ours = git(origin, 'rev-parse', BRANCH);
+  takeByHand(box);
+  write(origin, 'hooks/pre-receive', '#!/usr/bin/env bash\necho refused >&2\nexit 1\n', 0o755);
+  const refused = run();
+  assert.notEqual(refused.status, 0, 'the deletion is refused');
+  assert.doesNotMatch(calls(), /^pr (comment|close) /m, 'the pull request is not touched');
+  assert.equal(git(origin, 'rev-parse', BRANCH), ours, 'the branch stays');
+});
+
+test('sync-core.sh leaves a fulfilled pull request open where a commit reaches its branch after the run reads it', (t) => {
+  const box = fixture(t, { prs: [OURS] });
+  const { box: dir, origin, extension, moveCore, run, calls } = box;
+  moveCore('print("two")\n');
+  assert.equal(run().status, 0);
+  git(extension, 'fetch', '-q', 'origin', BRANCH);
+  git(extension, 'switch', '-q', '-C', 'theirs', 'FETCH_HEAD');
+  write(extension, 'notes.txt', 'a fix of their own\n');
+  git(extension, 'add', 'notes.txt');
+  git(extension, ...SOMEONE, 'commit', '-q', '-m', 'theirs');
+  const theirs = git(extension, 'rev-parse', 'HEAD');
+  takeByHand(box);
+  // Their commit reaches origin from a git that pushes it ahead of the run's
+  // first push: after the run has read the branch, before the deletion.
+  const mark = path.join(dir, 'pushed-theirs');
+  write(dir, 'racing/git', [
+    '#!/usr/bin/env bash',
+    `if [ "$1" = push ] && [ ! -e ${JSON.stringify(mark)} ]; then`,
+    `  : > ${JSON.stringify(mark)}`,
+    `  ${JSON.stringify(GIT)} push -q origin theirs:refs/heads/${BRANCH} || exit 1`,
+    'fi',
+    `exec ${JSON.stringify(GIT)} "$@"`,
+    ''
+  ].join('\n'), 0o755);
+  const refused = run({ bin: [path.join(dir, 'racing')] });
+  assert.ok(fs.existsSync(mark), 'their commit was pushed during the run');
+  assert.notEqual(refused.status, 0, 'the deletion is refused');
+  assert.doesNotMatch(calls(), /^pr (comment|close) /m, 'the pull request is not touched');
+  assert.equal(git(origin, 'rev-parse', BRANCH), theirs, 'their commit stays at the head');
+});
+
+test('sync-core.sh leaves alone a fork\'s pull request from a branch of the same name', (t) => {
+  const box = fixture(t, { prs: [FORKS] });
+  const { moveCore, run, calls } = box;
+  const head = moveCore('print("two")\n');
+  const opened = run();
+  assert.equal(opened.status, 0, opened.stderr);
+  assert.match(calls(), /^pr create /m, 'the run opens its own pull request');
+  assert.doesNotMatch(calls(), /^pr edit /m, 'rather than updating the fork\'s');
+  takeByHand(box);
+  const fulfilled = run();
+  assert.equal(fulfilled.status, 0, fulfilled.stderr);
+  assert.equal(fulfilled.stdout, `core.json already locks ${head}\n`);
+  assert.doesNotMatch(calls(), /^pr (comment|close) /m, 'nor closes it');
+});
+
+test('sync-core.sh stops where it cannot read the branch of a fulfilled pull request', (t) => {
+  const box = fixture(t, { prs: [OURS] });
+  const { box: dir, origin, moveCore, run, calls } = box;
+  moveCore('print("two")\n');
+  assert.equal(run().status, 0);
+  const ours = git(origin, 'rev-parse', BRANCH);
+  takeByHand(box);
+  write(dir, 'broken/git', `#!/usr/bin/env bash\nif [ "$1" = ls-remote ]; then exit 128; fi\nexec ${JSON.stringify(GIT)} "$@"\n`, 0o755);
+  const refused = run({ bin: [path.join(dir, 'broken')] });
+  assert.equal(refused.status, 1);
+  assert.equal(refused.stderr, `origin's ${BRANCH} could not be read (git ls-remote exit 128)\n`);
+  assert.doesNotMatch(calls(), /^pr (comment|close) /m);
+  assert.equal(git(origin, 'rev-parse', BRANCH), ours, 'the branch stays');
 });
 
 test('sync-core.sh opens the pull request, and turns auto-merge on where the repository allows it', (t) => {
@@ -132,20 +266,29 @@ test('sync-core.sh opens the pull request, and turns auto-merge on where the rep
   assert.equal(git(origin, 'rev-parse', 'main'), before, 'which is left as it was');
   const log = calls();
   assert.match(log, new RegExp(`^pr create --base main --head ${BRANCH} --title chore: take the shared files from channel-volume-core --body channel-volume-core's main has moved from ${locked} to ${head}: `, 'm'));
-  assert.match(log, new RegExp(`^pr merge ${BRANCH} --auto --merge$`, 'm'));
+  assert.match(log, new RegExp(`^pr merge ${CREATED} --auto --merge$`, 'm'), 'the pull request just opened, by its URL');
   assert.doesNotMatch(log, /^pr edit /m);
 });
 
 test('sync-core.sh updates the open pull request, and leaves auto-merge off where the repository does not allow it', (t) => {
-  const { moveCore, run, calls, pushed } = fixture(t, { pr: '7', autoMerge: 'false' });
+  const { moveCore, run, calls, pushed } = fixture(t, { prs: [OURS], autoMerge: 'false' });
   const head = moveCore('print("two")\n');
   const result = run();
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(pushed('core.json')).core.commit, head);
   const log = calls();
-  assert.match(log, new RegExp(`^pr edit ${BRANCH} --body channel-volume-core's main has moved from `, 'm'));
+  assert.match(log, new RegExp(`^pr edit 7 --body channel-volume-core's main has moved from `, 'm'));
   assert.doesNotMatch(log, /^pr create /m);
   assert.doesNotMatch(log, /^pr merge /m);
+});
+
+test('sync-core.sh updates the open pull request and turns auto-merge on for it by its number', (t) => {
+  const { moveCore, run, calls } = fixture(t, { prs: [OURS] });
+  moveCore('print("two")\n');
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(calls(), /^pr edit 7 --body /m);
+  assert.match(calls(), /^pr merge 7 --auto --merge$/m);
 });
 
 test('sync-core.sh stops before it pushes where the auto-merge setting cannot be read', (t) => {
