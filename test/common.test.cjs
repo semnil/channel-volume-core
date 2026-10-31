@@ -253,6 +253,27 @@ test('writeSettingsChange writes the change of the settings read, and leaves out
   assert.equal(JSON.stringify(byDefault.held.sync), '{"autoLoudnessSettings":{"displayUnit":"dB"}}');
 });
 
+test('a settings change that changes nothing does not write back over settings sync takes meanwhile', async () => {
+  const c = load();
+  const KEY = 'autoLoudnessSettings';
+  const set = (field, value) => (settings) => ({ ...settings, [field]: value });
+  // Another Chrome's change reaches sync between the read and the check that
+  // follows it. A change that leaves the read as it was has nothing to write.
+  for (const [field, value, theirs] of [['displayUnit', '%', { targetLufs: -24 }], ['showGainOverlay', false, { showGainOverlay: true }]]) {
+    const raced = storageFor({ sync: { [KEY]: { targetLufs: -18, displayUnit: '%', showGainOverlay: false } } });
+    const get = raced.storage.sync.get;
+    let reads = 0;
+    raced.storage.sync.get = async (key) => {
+      reads += 1;
+      if (reads === 2) raced.held.sync[KEY] = { ...raced.held.sync[KEY], ...theirs };
+      return get(key);
+    };
+    await c.writeSettingsChange(set(field, value), raced.storage);
+    assert.deepEqual(raced.calls.filter((call) => call.endsWith('.set')), [], `${field}: nothing is written`);
+    assert.equal(JSON.stringify(raced.held.sync[KEY]), JSON.stringify({ targetLufs: -18, displayUnit: '%', showGainOverlay: false, ...theirs }), `${field}: sync keeps what it took`);
+  }
+});
+
 test('createSerialQueue runs work one after the other, past a failure, answering as each settles', async () => {
   const c = load();
   const queue = c.createSerialQueue();
