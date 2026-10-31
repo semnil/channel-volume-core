@@ -2,7 +2,8 @@
 // own scripts: the settings key, the settings read, move and write, the serial
 // queue, the stored map writer, the Target LUFS default and range, the gain
 // range, the runtime check, gain conversion and display (Auto's included), the
-// gain for a level, the slider keys, the catalog lookup, and the HTML escape.
+// gain for a level, the stored gain per type, the slider keys, the catalog
+// lookup, and the HTML escape.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -398,6 +399,37 @@ test('gainForLevel takes a level to the target, within the gain range', () => {
   }
   assert.equal(c.gainForLevel(-18, -Infinity), 0, 'a target of -Infinity asks for silence');
   assert.ok(Math.abs(c.gainForLevel(null, -18) - Math.pow(10, -18 / 20)) < 1e-12, 'null counts as 0, as the arithmetic has it');
+});
+
+test('storedGain reads a slot, and the single gain of the earlier form only where no slot is a key', () => {
+  const c = load();
+  const SLOTS = ['gainLive', 'gainVideo'];
+  const read = (entry) => [c.storedGain(entry, 'gainVideo', SLOTS), c.storedGain(entry, 'gainLive', SLOTS)];
+  assert.deepEqual(read({ gainVideo: 1.5, gainLive: 0.5 }), [1.5, 0.5]);
+  assert.deepEqual(read({ gain: 2 }), [2, 2], 'the earlier form, for every type');
+  assert.deepEqual(read({ gain: 2, gainLive: 1 }), [null, 1], 'beside a slot, the earlier gain is not read');
+  assert.deepEqual(read({ gainVideo: null, gain: 3 }), [null, null], 'a slot that is a key, though empty, is enough');
+  assert.deepEqual(read({ gainVideo: 0 }), [0, null], 'a stored silence is a gain');
+  for (const value of ['x', '1.5', NaN, Infinity, -Infinity, true, [], {}]) {
+    assert.deepEqual(read({ gainVideo: value }), [null, null], `a slot holding ${String(value)}`);
+    assert.deepEqual(read({ gain: value }), [null, null], `the earlier gain ${String(value)}`);
+  }
+  for (const entry of [undefined, null, 'x', 3]) assert.deepEqual(read(entry), [null, null], `entry ${String(entry)}`);
+  const inherited = Object.assign(Object.create({ gainVideo: 9 }), { gain: 2 });
+  assert.deepEqual(read(inherited), [2, 2], 'a slot only on the prototype is no slot');
+});
+
+test('expandLegacyGain gives every slot the earlier single gain where none is a key, and removes it', () => {
+  const c = load();
+  const SLOTS = ['gainLive', 'gainVod'];
+  const expand = (entry) => JSON.stringify(c.expandLegacyGain(entry, SLOTS));
+  assert.equal(expand({ gain: 2, name: 'a' }), '{"name":"a","gainLive":2,"gainVod":2}');
+  assert.equal(expand({ gain: 2, gainLive: 1 }), '{"gainLive":1}', 'beside a slot it is only removed');
+  assert.equal(expand({ gain: 2, gainVod: null }), '{"gainVod":null}', 'a slot that is a key, though empty, is enough');
+  assert.equal(expand({ gain: 'x' }), '{}', 'one that is no finite number is only removed');
+  assert.equal(expand({ gainLive: 1 }), '{"gainLive":1}', 'an entry without it is left as it is');
+  const entry = { gain: 1 };
+  assert.equal(c.expandLegacyGain(entry, SLOTS), entry, 'in place');
 });
 
 test('formatGain shows a gain in the display unit', () => {

@@ -12,7 +12,7 @@ channel-volume の拡張機能 ([yt-channel-volume](https://github.com/semnil/yt
 
 | 組 | ファイル |
 |---|---|
-| `base` | `core/common.js` (各拡張機能が自分のスクリプトより先に読み込むもの。設定の保存キー、設定の読み取り (sync を先に、sync に無ければ local)、local に残った設定を sync へ移す処理と設定の変更の書き込み、1 つずつ順に走らせるキューとその上で local の対応表を書く処理、Target LUFS の既定値と範囲、ゲインの範囲、拡張機能の実行環境に届くかの判定、ゲインの換算と表示 (Auto の表示を含む)、ある大きさを Target LUFS に合わせるゲイン、スライダーを押し続けにするキー、言語ファイルの引き当て、HTML のエスケープ)、`pack.py`、`gen_icons.py`、変異掃引 (`tools/mutation/`)、カバレッジの変換 (`tools/coverage/`)、`tools/check-shared.sh`、`.github/workflows/ci.yaml`、毎日の同期 (このリポジトリの `sync-core.sh` を走らせる `.github/workflows/sync-core.yaml`)、共有ファイルをどこでも LF の改行で取り出させる `.gitattributes` |
+| `base` | `core/common.js` (各拡張機能が自分のスクリプトより先に読み込むもの。設定の保存キー、設定の読み取り (sync を先に、sync に無ければ local)、local に残った設定を sync へ移す処理と設定の変更の書き込み、1 つずつ順に走らせるキューとその上で local の対応表を書く処理、Target LUFS の既定値と範囲、ゲインの範囲、拡張機能の実行環境に届くかの判定、ゲインの換算と表示 (Auto の表示を含む)、ある大きさを Target LUFS に合わせるゲイン、種類ごとに保存したゲイン (以前の単一のゲインは種類ごとの欄が無いときだけ読む)、スライダーを押し続けにするキー、言語ファイルの引き当て、HTML のエスケープ)、`pack.py`、`gen_icons.py`、変異掃引 (`tools/mutation/`)、カバレッジの変換 (`tools/coverage/`)、`tools/check-shared.sh`、`.github/workflows/ci.yaml`、毎日の同期 (このリポジトリの `sync-core.sh` を走らせる `.github/workflows/sync-core.yaml`)、共有ファイルをどこでも LF の改行で取り出させる `.gitattributes` |
 | `release` | `.github/workflows/release.yaml`、`.github/workflows/tag-release.yaml` と、それらが走らせるスクリプト |
 | `auto-merge` | Dependabot の自動マージの workflow とそのテスト |
 | `public` | `CODEOWNERS`、`FUNDING.yml`、issue のテンプレート |
