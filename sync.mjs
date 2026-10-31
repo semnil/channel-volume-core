@@ -13,6 +13,12 @@
 // Both read the files from the commit, not from <core>'s working tree, so the
 // commit core.json names is the one whose files the extension holds.
 //
+// A sync refuses, and writes nothing, where the extension still holds a file
+// the commit it locked before shared, in any group, as that commit had it, and
+// the commit it is moving to does not give it: a file dropped, renamed or in a
+// group the extension no longer takes. A copy that differs from the commit
+// that shared it is the extension's own and is left alone.
+//
 // In a git repository whose core.filemode is false, as git sets it on Windows,
 // the executable bit is the one git's index holds: a sync sets it there, and a
 // check reads it from there.
@@ -85,10 +91,39 @@ function indexHoldsTheBit(extension) {
   }
 }
 
+// The files the commit locked before shared that the extension still holds
+// as that commit had them, and that the commit it is moving to does not give it.
+function leftBehind(core, extension, previous, files) {
+  try {
+    git(core, ['cat-file', '-e', `${previous}^{commit}`]);
+  } catch {
+    throw new Error(`${previous}, the commit ${CONFIG} locks, is not in ${core}`);
+  }
+  const before = [...new Set(Object.values(groupsAt(core, previous)).flat())];
+  return before.filter((file) => {
+    if (files.includes(file)) return false;
+    let held;
+    try {
+      held = fs.readFileSync(path.join(extension, file));
+    } catch {
+      return false;
+    }
+    return held.equals(sharedAt(core, previous, file).bytes);
+  });
+}
+
 function sync(core, extension) {
   const config = readConfig(extension);
   const commit = git(core, ['rev-parse', 'HEAD']).toString('utf8').trim();
   const files = filesOf(core, commit, config.core.groups);
+  const previous = config.core.commit;
+  if (typeof previous === 'string' && COMMIT.test(previous)) {
+    const left = leftBehind(core, extension, previous, files);
+    if (left.length) {
+      throw new Error(`${commit} no longer gives this extension what ${previous} shared, and it is still here:\n  `
+        + `${left.join('\n  ')}\nremove it, then sync again`);
+    }
+  }
   const copies = files.map((file) => ({ file, ...sharedAt(core, commit, file) }));
   const inIndex = indexHoldsTheBit(extension);
   for (const { file, bytes, executable } of copies) {

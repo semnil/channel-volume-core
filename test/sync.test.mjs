@@ -155,6 +155,71 @@ test('a wrong argument list prints the usage', () => {
   }
 });
 
+// A later commit of the fixture core, with groups.json and shared/ as given.
+function recommit(core, groups, writes = {}, removes = []) {
+  write(core, 'groups.json', JSON.stringify(groups));
+  for (const [file, text] of Object.entries(writes)) write(core, `shared/${file}`, text);
+  for (const file of removes) fs.rmSync(path.join(core, 'shared', file));
+  git(core, 'add', '-A');
+  git(core, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'later');
+  return git(core, 'rev-parse', 'HEAD');
+}
+
+test('sync refuses, and writes nothing, where a file the last commit shared is still here unshared', (t) => {
+  for (const [why, setUp, named] of [
+    ['dropped', (core) => recommit(core, { base: ['pack.py'], extra: ['.github/extra.yml'] }, {}, ['tools/run.sh']), 'tools/run.sh'],
+    ['renamed', (core) => recommit(core, { base: ['pack.py', 'tools/go.sh'], extra: ['.github/extra.yml'] },
+      { 'tools/go.sh': '#!/bin/sh\necho run\n' }, ['tools/run.sh']), 'tools/run.sh'],
+    ['in a group no longer taken', (core, extension) => {
+      write(extension, 'core.json', JSON.stringify({ core: { groups: ['base'], commit: lockOf(extension) } }));
+    }, '.github/extra.yml']
+  ]) {
+    const { core, extension, commit } = fixture(t);
+    write(extension, 'core.json', JSON.stringify({ core: { groups: ['base', 'extra'] } }));
+    assert.equal(run(core, extension).status, 0, why);
+    setUp(core, extension);
+    const before = fs.readFileSync(path.join(extension, 'core.json'), 'utf8');
+    const result = run(core, extension);
+    assert.equal(result.status, 1, `${why}: ${result.stderr}`);
+    assert.ok(result.stderr.includes(`no longer gives this extension what ${commit} shared, and it is still here:\n  ${named}\n`),
+      `${why}: ${result.stderr}`);
+    assert.equal(fs.readFileSync(path.join(extension, 'core.json'), 'utf8'), before, `${why}: the lock does not move`);
+    assert.equal(result.stdout, '', `${why}: nothing is written`);
+
+    fs.rmSync(path.join(extension, named));
+    const again = run(core, extension);
+    assert.equal(again.status, 0, `${why}: with it removed the sync goes ahead — ${again.stderr}`);
+  }
+});
+
+function lockOf(extension) {
+  return JSON.parse(fs.readFileSync(path.join(extension, 'core.json'), 'utf8')).core.commit;
+}
+
+test('a copy that differs from the commit that shared it is the extension\'s own and is left alone', (t) => {
+  const { core, extension } = fixture(t);
+  run(core, extension);
+  write(extension, 'tools/run.sh', '#!/bin/sh\necho mine\n');
+  write(extension, 'own.txt', 'never shared\n');
+  const later = recommit(core, { base: ['pack.py'], extra: ['.github/extra.yml'] }, {}, ['tools/run.sh']);
+  const result = run(core, extension);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(fs.readFileSync(path.join(extension, 'tools/run.sh'), 'utf8'), '#!/bin/sh\necho mine\n');
+  assert.equal(fs.readFileSync(path.join(extension, 'own.txt'), 'utf8'), 'never shared\n');
+  assert.equal(lockOf(extension), later);
+  // A group the extension never took is nothing it holds.
+  assert.equal(fs.existsSync(path.join(extension, '.github/extra.yml')), false);
+});
+
+test('sync refuses a locked commit the core it copies from does not have', (t) => {
+  const { core, extension } = fixture(t);
+  write(extension, 'core.json', JSON.stringify({ core: { groups: ['base'], commit: 'a'.repeat(40) } }));
+  const result = run(core, extension);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, new RegExp(`${'a'.repeat(40)}, the commit core\\.json locks, is not in `));
+  assert.equal(fs.existsSync(path.join(extension, 'pack.py')), false, 'and writes nothing');
+});
+
 // A repository whose core.filemode is false keeps the executable bit in its
 // index alone, as git does on Windows: the sync sets it there, a commit made
 // from it carries it, and a check in that repository reads it from there.
