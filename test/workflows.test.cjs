@@ -77,6 +77,24 @@ test('every job names how long it may run', () => {
   assert.ok(jobs > 2, `the workflows carry jobs — found ${jobs}`);
 });
 
+// A step that reaches a host outside GitHub (a package index, Codecov, a
+// download) names how long it may run, so that the step that hung is the
+// one the run names rather than the job.
+const OUTSIDE = [/^ {8}uses: codecov\//m, /\bpip3? install\b/, /\bnpm (install|ci)\b/, /\bapt-get\b/, /\bcurl\b/, /\bwget\b/];
+test('every step that reaches outside GitHub names how long it may run', () => {
+  let outside = 0;
+  for (const { name, text } of everyWorkflow()) {
+    for (const step of text.split(/\n {6}- /).slice(1)) {
+      if (!OUTSIDE.some((pattern) => pattern.test(step))) continue;
+      outside += 1;
+      assert.match(step, /^ {8}timeout-minutes: \d+$/m,
+        `${name}'s step "${(step.match(/name: (.*)/) || step.match(/uses: (\S+)/) || [step, step.split('\n')[0]])[1]}" names how long it may run`);
+    }
+  }
+  // Without this the loop above would pass over workflows that reach nothing.
+  assert.ok(outside > 2, `the workflows reach outside GitHub — found ${outside}`);
+});
+
 // A release is built from whatever commit its tag names: a build that packs
 // without running what CI runs turns a commit CI never passed into a release
 // asset. The two are held together here
