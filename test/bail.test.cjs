@@ -67,7 +67,21 @@ for (const runner of RUNNERS) {
       for (let turn = 0; turn < 100 && alive(processId); turn++) await tick();
       return !alive(processId);
     };
-    const bail = (args, { during, env } = {}) => new Promise((resolve) => {
+    // '' where the process has gone; where it has not, what ps says of it and
+    // of every process in its group, and whether it goes within 10 s more.
+    const goneOrWhy = async (processId) => {
+      if (await gone(processId)) return '';
+      const table = spawnSync('ps', ['-A', '-o', 'pid=,ppid=,pgid=,stat=,etime=,command='], { encoding: 'utf8' }).stdout
+        .split('\n').map((line) => line.trim()).filter(Boolean);
+      const own = table.find((line) => line.split(/\s+/)[0] === String(processId)) || '';
+      const group = own.split(/\s+/)[2];
+      const members = group ? table.filter((line) => line.split(/\s+/)[2] === group) : [];
+      const waitedFrom = Date.now();
+      for (let turn = 0; turn < 1000 && alive(processId); turn++) await tick();
+      const later = alive(processId) ? 'still there 10 s later' : `gone ${Date.now() - waitedFrom} ms later`;
+      return `; still there 1 s on: [${own}]; its group: [${members.join(' | ')}]; ${later}`;
+    };
+    const bail =(args, { during, env } = {}) => new Promise((resolve) => {
       const run = { stdout: '', stderr: '', timedOut: false };
       const child = spawn('node', [BAILER, ...args], { cwd: box, env: env || process.env });
       child.stdout.setEncoding('utf8');
@@ -227,8 +241,9 @@ for (const runner of RUNNERS) {
       assert.ok(!failed.timedOut && failed.status === 1 && failed.signal === null
         && failed.stderr.includes(runner.failLine),
         `the first failure ends a run that would go on for ever, as failed (${JSON.stringify(failed)})`);
-      assert.ok(processIdIn('below.pid') > 0 && await gone(processIdIn('below.pid')),
-        `and what the suite started goes with it (${processIdIn('below.pid')})`);
+      const belowWhy = processIdIn('below.pid') > 0 ? await goneOrWhy(processIdIn('below.pid')) : 'no process id';
+      assert.ok(belowWhy === '',
+        `and what the suite started goes with it (${processIdIn('below.pid')}${belowWhy})`);
       if (runner.nodeTest) {
         assert.ok(!nodeTest.timedOut && nodeTest.status === 1 && nodeTest.signal === null,
           `the pattern is the line node:test prints for a failed test (${JSON.stringify(nodeTest)})`);
@@ -237,8 +252,9 @@ for (const runner of RUNNERS) {
         `a suite a signal took ends the run by that signal (${JSON.stringify(signalled)})`);
       assert.ok(!stopped.timedOut && stopped.status === null && stopped.signal === 'SIGTERM',
         `a signal sent to the run ends it by that signal (${JSON.stringify(stopped)})`);
-      assert.ok(processIdIn('wait.pid') > 0 && await gone(processIdIn('wait.pid')),
-        `and reaches the suite (${processIdIn('wait.pid')})`);
+      const waitWhy = processIdIn('wait.pid') > 0 ? await goneOrWhy(processIdIn('wait.pid')) : 'no process id';
+      assert.ok(waitWhy === '',
+        `and reaches the suite (${processIdIn('wait.pid')}${waitWhy}; the run: ${JSON.stringify(stopped)})`);
       assert.ok(!answered.timedOut && answered.status === null && answered.signal === 'SIGTERM',
         `a suite that answers the signal by exiting 0, a failure on its way out, still ends the run by it (${JSON.stringify(answered)})`);
       assert.ok(!late.timedOut && late.status === null && late.signal === 'SIGTERM'
@@ -246,14 +262,16 @@ for (const runner of RUNNERS) {
         `a signal that finds the suite's group gone still ends the run by it, though what the suite left holds the output (${JSON.stringify(late)})`);
       assert.ok(!held.timedOut && held.status === null && held.signal === 'SIGTERM',
         `a signal ends the run once the suite has ended, though what it started holds the output and outlives the signal (${JSON.stringify(held)})`);
-      assert.ok(processIdIn('deaf.pid') > 0 && await gone(processIdIn('deaf.pid')),
-        `and that goes with the rest of the suite's group (${processIdIn('deaf.pid')})`);
+      const deafWhy = processIdIn('deaf.pid') > 0 ? await goneOrWhy(processIdIn('deaf.pid')) : 'no process id';
+      assert.ok(deafWhy === '',
+        `and that goes with the rest of the suite's group (${processIdIn('deaf.pid')}${deafWhy})`);
       assert.ok(!outlasted.timedOut && outlasted.status === null && outlasted.signal === 'SIGTERM'
         && outlasted.endedAt - outlasted.signalledAt >= 4900,
         `a suite that goes on past a signal is given 5 s, and the run then ends by the signal (${JSON.stringify({ ...outlasted, afterSignalMs: outlasted.endedAt - outlasted.signalledAt })})`);
-      assert.ok(processIdIn('deaf-suite.pid') > 0 && await gone(processIdIn('deaf-suite.pid'))
-        && processIdIn('deaf-child.pid') > 0 && await gone(processIdIn('deaf-child.pid')),
-        `and it goes with its group, what it started too (${processIdIn('deaf-suite.pid')}, ${processIdIn('deaf-child.pid')})`);
+      const deafSuiteWhy = processIdIn('deaf-suite.pid') > 0 ? await goneOrWhy(processIdIn('deaf-suite.pid')) : 'no process id';
+      const deafChildWhy = processIdIn('deaf-child.pid') > 0 ? await goneOrWhy(processIdIn('deaf-child.pid')) : 'no process id';
+      assert.ok(deafSuiteWhy === '' && deafChildWhy === '',
+        `and it goes with its group, what it started too (${processIdIn('deaf-suite.pid')}${deafSuiteWhy}, ${processIdIn('deaf-child.pid')}${deafChildWhy})`);
       assert.ok(!unread.timedOut && unread.status === null && unread.signal === 'SIGTERM',
         `a run whose reader has gone still ends by the signal, whatever the suite prints on its way out (${JSON.stringify(unread)})`);
       assert.ok(after.status === 0 && after.signal === null && after.stdout === 'later\n',
