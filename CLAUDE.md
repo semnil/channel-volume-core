@@ -28,13 +28,17 @@ An extension's `core.json`:
 node --test test/*.test.cjs test/*.test.mjs
 
 # Sweep one shared file for mutants the tests let through (writes into the tree
-# it is given, so give it a worktree rather than the checkout being worked in;
-# run a copy of sweep.mjs from elsewhere when the file swept is sweep.mjs or
-# bail.mjs, and name the test file directly rather than through bail.mjs).
-# MUTATE_TIMEOUT_MS=<n> gives each run n ms instead of 180 s; the sweep's own
-# tests use it to reach a hung run in seconds
+# it is given, so give it a worktree rather than the checkout being worked in).
+# The tests run through bail.mjs, which stops what a run started when the run is
+# stopped: sweep.mjs stops only the command it started, and a test that starts a
+# process leaves it running past a timeout otherwise. When the file swept is
+# sweep.mjs or bail.mjs, run both from a clone of this repository rather than
+# from the tree being swept. MUTATE_TIMEOUT_MS=<n> gives each run n ms instead
+# of 180 s; the sweep's own tests use it to reach a hung run in seconds
 node shared/tools/mutation/sweep.mjs <worktree> shared/tools/coverage/v8-to-lcov.mjs \
   node shared/tools/mutation/bail.mjs '^(✖|not ok) ' node --test test/coverage.test.cjs
+node <clone>/shared/tools/mutation/sweep.mjs <worktree> shared/tools/mutation/bail.mjs \
+  node <clone>/shared/tools/mutation/bail.mjs '^(✖|not ok) ' node --test test/bail.test.cjs
 
 # Ask whether the record still names sites the code has (no test is run)
 node shared/tools/mutation/sweep.mjs --verify .
