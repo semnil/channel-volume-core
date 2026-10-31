@@ -622,6 +622,7 @@ test('createSliderKeys begins a hold at the first value key down and ends it at 
   assert.equal(keys.release(down('ArrowRight')), false, 'nor did it count the key as down');
   assert.equal(keys.press(down('ArrowRight')), true, 'the first value key down begins the hold');
   assert.equal(keys.press(down('ArrowRight', true)), false);
+  assert.equal(keys.press(down('ArrowRight')), false, 'the key already down, pressed again, stays in the hold');
   assert.equal(keys.press(down('ArrowUp')), false, 'a second one joins it');
   assert.equal(keys.release(down('ArrowRight')), false, 'the hold lasts while one is down');
   assert.equal(keys.release(down('Home')), false, 'a key never down ends nothing');
