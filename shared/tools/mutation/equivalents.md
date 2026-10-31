@@ -23,7 +23,7 @@ The refusal on Windows. On macOS and Linux the platform is never `win32`, so
 there a check that is never taken is the check as it stands; on Windows the
 tests ask for the refusal itself.
 
-- `shared/tools/mutation/bail.mjs:33` a guard body is dropped ×1 — if (process.platform === 'win32') {
+- `shared/tools/mutation/bail.mjs:34` a guard body is dropped ×1 — if (process.platform === 'win32') {
 
 ## shared/tools/mutation/sweep.mjs
 

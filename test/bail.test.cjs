@@ -75,7 +75,7 @@ for (const runner of RUNNERS) {
       child.stdout.on('data', (chunk) => { run.stdout += chunk; });
       child.stderr.on('data', (chunk) => { run.stderr += chunk; });
       const guard = setTimeout(() => { run.timedOut = true; child.kill('SIGKILL'); }, 15000);
-      child.on('close', (status, signal) => { clearTimeout(guard); resolve({ ...run, status, signal }); });
+      child.on('close', (status, signal) => { clearTimeout(guard); run.endedAt = Date.now(); resolve({ ...run, status, signal }); });
       if (during) during(child, run);
     });
     // What these cases start runs until a stop takes it, and each of them also
@@ -134,6 +134,16 @@ for (const runner of RUNNERS) {
       ].join('\n'));
       // A suite the signal takes while something it started in its group
       // holds the output open and does not end on that signal.
+      // A suite that does nothing with SIGTERM but go on, and something it
+      // started.
+      write('deaf.js', [
+        "const { spawn } = require('child_process');",
+        "process.on('SIGTERM', () => {});",
+        `const below = spawn('node', ['-e', ${JSON.stringify(idle)}], { stdio: 'ignore' });`,
+        "require('fs').writeFileSync('deaf-child.pid', String(below.pid));",
+        "require('fs').writeFileSync('deaf-suite.pid', String(process.pid));",
+        forever
+      ].join('\n'));
       write('deaf-below.js', [
         "const { spawn } = require('child_process');",
         "require('fs').writeFileSync('deaf-below.pid', String(process.pid));",
@@ -169,8 +179,9 @@ for (const runner of RUNNERS) {
         child.stderr.on('data', () => { if (run.stderr.includes('passed on')) child.stdout.resume(); });
         child.kill('SIGTERM');
       };
-      const signalOnce = (idFile) => async (child) => {
+      const signalOnce = (idFile) => async (child, run) => {
         for (let turn = 0; turn < 500 && !processIdIn(idFile); turn++) await tick();
+        run.signalledAt = Date.now();
         child.kill('SIGTERM');
       };
       // Run by `node --test`, this file has NODE_TEST_CONTEXT in its
@@ -178,7 +189,7 @@ for (const runner of RUNNERS) {
       // for that runner rather than as lines. A sweep starts the suite without it.
       const sweepEnv = { ...process.env };
       delete sweepEnv.NODE_TEST_CONTEXT;
-      const [passed, status, failed, nodeTest, signalled, stopped, answered, late, held, unread, after, drained, drainedLate, badPattern, noCommand, unrunnable] = await Promise.all([
+      const [passed, status, failed, nodeTest, signalled, stopped, answered, late, held, outlasted, unread, after, drained, drainedLate, badPattern, noCommand, unrunnable] = await Promise.all([
         bail([pattern, 'node', 'pass.js']),
         bail([pattern, 'node', 'status.js']),
         bail([pattern, 'node', 'fail.js']),
@@ -193,6 +204,7 @@ for (const runner of RUNNERS) {
           }
         }),
         bail([pattern, 'node', 'deaf-below.js'], { during: signalOnce('deaf.pid') }),
+        bail([pattern, 'node', 'deaf.js'], { during: signalOnce('deaf-suite.pid') }),
         bail([pattern, 'node', 'unread.js'], {
           during: async (child) => {
             for (let turn = 0; turn < 500 && !processIdIn('unread.pid'); turn++) await tick();
@@ -236,6 +248,12 @@ for (const runner of RUNNERS) {
         `a signal ends the run once the suite has ended, though what it started holds the output and outlives the signal (${JSON.stringify(held)})`);
       assert.ok(processIdIn('deaf.pid') > 0 && await gone(processIdIn('deaf.pid')),
         `and that goes with the rest of the suite's group (${processIdIn('deaf.pid')})`);
+      assert.ok(!outlasted.timedOut && outlasted.status === null && outlasted.signal === 'SIGTERM'
+        && outlasted.endedAt - outlasted.signalledAt >= 4900,
+        `a suite that goes on past a signal is given 5 s, and the run then ends by the signal (${JSON.stringify({ ...outlasted, afterSignalMs: outlasted.endedAt - outlasted.signalledAt })})`);
+      assert.ok(processIdIn('deaf-suite.pid') > 0 && await gone(processIdIn('deaf-suite.pid'))
+        && processIdIn('deaf-child.pid') > 0 && await gone(processIdIn('deaf-child.pid')),
+        `and it goes with its group, what it started too (${processIdIn('deaf-suite.pid')}, ${processIdIn('deaf-child.pid')})`);
       assert.ok(!unread.timedOut && unread.status === null && unread.signal === 'SIGTERM',
         `a run whose reader has gone still ends by the signal, whatever the suite prints on its way out (${JSON.stringify(unread)})`);
       assert.ok(after.status === 0 && after.signal === null && after.stdout === 'later\n',
@@ -257,7 +275,7 @@ for (const runner of RUNNERS) {
     } finally {
       // What a stop that did not take left running, and only where the process
       // under that process id is still the one these cases started.
-      for (const [name, started] of [['below.pid', 'setInterval'], ['fail.pid', 'fail.js'], ['node-test.pid', 'node-test.js'], ['wait.pid', 'wait.js'], ['answers.pid', 'answers.js'], ['left.pid', 'setInterval'], ['deaf-below.pid', 'deaf-below.js'], ['deaf.pid', 'setInterval'], ['unread.pid', 'unread.js']]) {
+      for (const [name, started] of [['below.pid', 'setInterval'], ['fail.pid', 'fail.js'], ['node-test.pid', 'node-test.js'], ['wait.pid', 'wait.js'], ['answers.pid', 'answers.js'], ['left.pid', 'setInterval'], ['deaf-below.pid', 'deaf-below.js'], ['deaf.pid', 'setInterval'], ['deaf-suite.pid', 'deaf.js'], ['deaf-child.pid', 'setInterval'], ['unread.pid', 'unread.js']]) {
         const processId = processIdIn(name);
         const now = processId && alive(processId) ? spawnSync('ps', ['-o', 'command=', '-p', String(processId)], { encoding: 'utf8' }).stdout || '' : '';
         if (now.includes(started)) process.kill(processId, 'SIGKILL');

@@ -11,6 +11,7 @@ const { execFileSync, spawnSync } = require('node:child_process');
 const { shared, tempDir } = require('./helpers.cjs');
 
 const SWEEP = shared('tools', 'mutation', 'sweep.mjs');
+const BAIL = shared('tools', 'mutation', 'bail.mjs');
 const KNOBS = ['MUTATE_LINES', 'MUTATE_COUNT', 'MUTATE_CONFIRM', 'MUTATE_OPTIONAL', 'MUTATE_SHARD', 'MUTATE_TIMEOUT_MS'];
 // A sweep that never ends fails the case rather than holding the suite.
 const TIMEOUT = 20000;
@@ -77,6 +78,7 @@ function box(files = {}) {
   const all = { 'src.js': RULE_SOURCE, 'pristine.txt': RULE_SOURCE, 'suite.js': READS, ...files };
   fs.mkdirSync(path.join(dir, 'tools', 'mutation'), { recursive: true });
   fs.copyFileSync(SWEEP, path.join(dir, 'tools/mutation/sweep.mjs'));
+  fs.copyFileSync(BAIL, path.join(dir, 'tools/mutation/bail.mjs'));
   for (const [name, text] of Object.entries(all)) fs.writeFileSync(path.join(dir, name), text);
   const git = (...args) => execFileSync('git', args, { cwd: dir });
   git('init', '-q', '-b', 'main');
@@ -310,3 +312,32 @@ test('a run that takes longer than MUTATE_TIMEOUT_MS is reported as hung, and co
   assert.equal(summary(still), 'src.js: 19 mutants, 0 did not parse, 19 run, 0 killed, 19 standing (2 of them hung)');
   untouched(b, 'a confirmed sweep with hung runs');
 });
+
+test('through bail.mjs, a run that outlasts its timeout and ignores the signal ends, and what it started with it', { skip: process.platform === 'win32' && 'bail.mjs refuses Windows' }, async () => {
+  // Where a guard body was dropped, the suite ignores SIGTERM, waits, and
+  // starts a process that writes late.txt 8 s on.
+  const source = 'function f(a) {\n  if (a) {\n    return 1;\n  }\n  return 0;\n}\nmodule.exports = { f };\n';
+  const b = box({
+    'src.js': source,
+    'pristine.txt': source,
+    'suite.js': [
+      'const fs = require("fs");',
+      'require("./src.js");',
+      'if (fs.readFileSync("src.js", "utf8").includes("if (false) {")) {',
+      '  process.on("SIGTERM", () => {});',
+      '  require("child_process").spawn(process.execPath,',
+      '    ["-e", "setTimeout(() => require(\'fs\').writeFileSync(\'late.txt\', \'\'), 8000)"], { stdio: "ignore" });',
+      '  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 30000);',
+      '}',
+      ''
+    ].join('\n')
+  });
+  const run = b.sweep({ MUTATE_TIMEOUT_MS: '1000' }, 'node', 'tools/mutation/bail.mjs', '^NEVER$', 'node', 'suite.js');
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(listed(run, 'HUNG'), ['src.js:2    a guard body is dropped — if (a) {']);
+  assert.equal(b.read('src.js'), source, 'the source is as it was');
+  assert.equal(b.locked(), false, 'and the tree is not left marked');
+  await new Promise((resolve) => setTimeout(resolve, 9000));
+  assert.equal(b.has('late.txt'), false, 'nothing the hung run started writes after it');
+});
+
