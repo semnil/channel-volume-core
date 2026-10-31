@@ -3,8 +3,9 @@
 // queue, the stored map writer, the Target LUFS default and range, the gain
 // range, the runtime check, gain conversion and display (Auto's included), the
 // gain for a level, the gain a write may store, the stored gain per type, a
-// row's name and Auto flags, the slider keys, the catalog lookup, and the HTML
-// escape.
+// row's name, label and Auto flags, the worker's write listener and a page's
+// request to it, the slider keys, the catalog lookup, the HTML escape, the
+// settings page's error line, and the popup's asking again for the state.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -337,6 +338,25 @@ test('createWriteListener answers a write with ok and its result, and a rejectio
   assert.deepEqual(logged, [['warn', '[T] unknown message type', 'other'], ['warn', '[T] unknown message type', 'undefined']]);
 });
 
+test('requestWrite resolves with the worker\'s answer when it is ok, and rejects with the reason it answered otherwise', async () => {
+  const sent = [];
+  let answer;
+  const c = load({ chrome: { runtime: { sendMessage: async (message) => { sent.push(message); return answer; } } } });
+  const message = { type: 'store:deleteChannel', key: 'UC1' };
+  answer = { ok: true, settings: {} };
+  assert.equal(await c.requestWrite(message), answer);
+  assert.equal(sent[0], message, 'the message goes to the worker as it is');
+  answer = { ok: false, reason: 'invalid-mutation' };
+  await assert.rejects(c.requestWrite(message), { message: 'invalid-mutation' });
+  for (const unanswered of [undefined, { ok: false }, {}]) {
+    answer = unanswered;
+    await assert.rejects(c.requestWrite(message), { message: 'write not confirmed' }, JSON.stringify(unanswered));
+  }
+  const gone = load({ chrome: { runtime: { sendMessage: () => { throw new Error('Extension context invalidated.'); } } } });
+  await assert.rejects(gone.requestWrite(message), { message: 'Extension context invalidated.' },
+    'a send that throws is a rejection, not a throw');
+});
+
 test('createStoredMapWriter writes a changed map back, one write after the other', async () => {
   const { held, calls, storage } = storageFor({ local: { channels: { a: 1 } } });
   const c = load({ chrome: { runtime: { id: 'x' }, storage } });
@@ -513,6 +533,15 @@ test('isRowKey takes non-empty text alone', () => {
   for (const key of ['', undefined, null, 5, true, ['UC1'], { key: 'UC1' }]) assert.equal(c.isRowKey(key), false, JSON.stringify(key));
 });
 
+test('rowLabel is a row\'s name where it is non-empty text, and its key otherwise', () => {
+  const c = load();
+  assert.equal(c.rowLabel('UC1', { name: 'Real' }), 'Real');
+  for (const name of ['', undefined, null, 5, ['Real'], { name: 'Real' }]) {
+    assert.equal(c.rowLabel('UC1', { name }), 'UC1', JSON.stringify(name));
+  }
+  assert.equal(c.rowLabel('user:4', {}), 'user:4', 'a row with no name');
+});
+
 test('applyEntryName names a row from text other than its id, and a nameless row by its id where asked', () => {
   const c = load();
   const named = (entry, name, nameNewRow) => { c.applyEntryName(entry, 'UC1', name, nameNewRow); return entry.name; };
@@ -631,4 +660,58 @@ test('esc makes text safe between tags and inside a quoted attribute', () => {
   assert.equal(c.esc('a "b" & \'c\' <d>'), 'a &quot;b&quot; &amp; &#39;c&#39; &lt;d&gt;');
   assert.equal(c.esc('&quot;'), '&amp;quot;', 'text that looks like a reference stays text');
   assert.equal(c.esc(''), '');
+});
+
+test('showSettingsError shows #settingsError with the catalog\'s text for a key, and hides it', () => {
+  const line = { textContent: 'markup', hidden: true };
+  line.classList = { toggle: (name, force) => { assert.equal(name, 'hidden'); line.hidden = force; } };
+  const c = load({
+    document: { getElementById: (id) => (id === 'settingsError' ? line : null) },
+    chrome: { i18n: { getMessage: (key) => ({ settingsSaveFailed: 'Not saved', settingsLoadFailed: 'Not loaded' })[key] || '' } }
+  });
+  c.showSettingsError(true);
+  assert.deepEqual([line.textContent, line.hidden], ['Not saved', false], 'the save failure by default');
+  c.showSettingsError(true, 'settingsLoadFailed');
+  assert.deepEqual([line.textContent, line.hidden], ['Not loaded', false]);
+  c.showSettingsError(false, 'settingsSaveFailed');
+  assert.deepEqual([line.textContent, line.hidden], ['Not loaded', true], 'hiding leaves the text');
+});
+
+test('retryGetState asks again until done, at most the times given, and stops at an empty answer or a failure', async () => {
+  // Each timer runs when the case lets it, and its delay is kept.
+  const timers = [];
+  const delays = [];
+  const setTimeout = (fn, ms) => { timers.push(fn); delays.push(ms); };
+  const c = load({ setTimeout });
+  const flush = async () => {
+    while (timers.length) { await timers.shift()(); await new Promise((resolve) => setImmediate(resolve)); }
+  };
+  const run = async (remaining, answers, doneAfter = Infinity) => {
+    const taken = [];
+    let asked = 0;
+    c.retryGetState(remaining, 500, {
+      done: () => taken.length >= doneAfter,
+      ask: async () => { const a = answers[asked++]; if (a instanceof Error) throw a; return a; },
+      take: (state) => taken.push(state)
+    });
+    await flush();
+    return { asked, taken };
+  };
+  assert.deepEqual(await run(3, [{ n: 1 }, { n: 2 }, { n: 3 }, { n: 4 }]), { asked: 3, taken: [{ n: 1 }, { n: 2 }, { n: 3 }] },
+    'no more asks than remaining');
+  assert.ok(delays.length === 3 && delays.every((ms) => ms === 500), `each ask waits the interval (${delays})`);
+  assert.deepEqual(await run(5, [{ n: 1 }, { n: 2 }, { n: 3 }], 2), { asked: 2, taken: [{ n: 1 }, { n: 2 }] },
+    'a state that settles it ends the asking');
+  assert.deepEqual(await run(5, [{ n: 1 }, null, { n: 3 }]), { asked: 2, taken: [{ n: 1 }] }, 'an empty answer ends it');
+  assert.deepEqual(await run(5, [new Error('gone'), { n: 2 }]), { asked: 1, taken: [] }, 'and so does a failed ask');
+  assert.deepEqual(await run(0, [{ n: 1 }]), { asked: 0, taken: [] }, 'none remaining asks nothing');
+  assert.deepEqual(await run(5, [{ n: 1 }], 0), { asked: 0, taken: [] }, 'and nor does a state already settled');
+  // Settled while the timer waits: the ask is not made.
+  const taken = [];
+  let settled = false;
+  let asked = 0;
+  c.retryGetState(5, 500, { done: () => settled, ask: async () => { asked++; return { n: 1 }; }, take: (s) => taken.push(s) });
+  settled = true;
+  await flush();
+  assert.deepEqual([asked, taken.length], [0, 0], 'a state settled while the timer waits is not asked for');
 });
