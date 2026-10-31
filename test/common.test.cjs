@@ -1,7 +1,7 @@
 // common.test.cjs — core/common.js, what the extensions load ahead of their
 // own scripts: the settings key, the Target LUFS default and range, the gain
 // range, the runtime check, gain conversion and display (Auto's included), the
-// slider keys, the catalog lookup, and the HTML escape.
+// gain for a level, the slider keys, the catalog lookup, and the HTML escape.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -63,6 +63,21 @@ test('gains turn into percent and dB, and percent back into a gain', () => {
   assert.equal(c.gainToDb(0.5), '-6.0');
   assert.equal(c.gainToDb(0), '-Inf', 'silence has no level in dB');
   assert.equal(c.gainToDb(-1), '-Inf');
+});
+
+test('gainForLevel takes a level to the target, within the gain range', () => {
+  const c = load();
+  assert.equal(c.gainForLevel(-18, -18), 1, 'a level at the target keeps it');
+  assert.ok(Math.abs(c.gainForLevel(-24, -18) - Math.pow(10, 6 / 20)) < 1e-12, 'a quieter level is raised');
+  assert.ok(Math.abs(c.gainForLevel(-12, -18) - Math.pow(10, -6 / 20)) < 1e-12, 'a louder one lowered');
+  assert.equal(c.gainForLevel(-70, -18), 6, 'no higher than MAX_GAIN');
+  assert.equal(c.gainForLevel(Infinity, -18), 0, 'no lower than MIN_GAIN');
+  assert.equal(c.gainForLevel(-Infinity, -18), 1, 'a gain that is not finite is 1');
+  for (const [level, target] of [[NaN, -18], [-18, NaN], [-18, Infinity], [undefined, -18], ['x', -18]]) {
+    assert.equal(c.gainForLevel(level, target), 1, `${String(level)} to ${String(target)}`);
+  }
+  assert.equal(c.gainForLevel(-18, -Infinity), 0, 'a target of -Infinity asks for silence');
+  assert.ok(Math.abs(c.gainForLevel(null, -18) - Math.pow(10, -18 / 20)) < 1e-12, 'null counts as 0, as the arithmetic has it');
 });
 
 test('formatGain shows a gain in the display unit', () => {
