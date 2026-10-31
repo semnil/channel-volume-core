@@ -5,7 +5,8 @@
 // gain for a level, the gain a write may store, the stored gain per type, a
 // row's name, label and Auto flags, the worker's write listener and a page's
 // request to it, the slider keys, the catalog lookup, the HTML escape, the
-// settings page's error line, and the popup's asking again for the state.
+// gain as one text, the popup's cards, the settings page's error line, and the
+// popup's asking again for the state.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -660,6 +661,51 @@ test('esc makes text safe between tags and inside a quoted attribute', () => {
   assert.equal(c.esc('a "b" & \'c\' <d>'), 'a &quot;b&quot; &amp; &#39;c&#39; &lt;d&gt;');
   assert.equal(c.esc('&quot;'), '&amp;quot;', 'text that looks like a reference stays text');
   assert.equal(c.esc(''), '');
+});
+
+test('formatGainText is the gain\'s number and unit in the display unit, as one text', () => {
+  const c = load();
+  assert.equal(c.formatGainText(1.5, '%'), '150%');
+  assert.equal(c.formatGainText(2, 'dB'), '6.0 dB');
+  assert.equal(c.formatGainText(0, 'dB'), '-Inf dB');
+});
+
+// An element whose text replaces every child, as a browser's does, and whose
+// text reads its own and its children's in order.
+function cardElement(className) {
+  return {
+    className,
+    children: [],
+    own: '',
+    set textContent(value) { this.own = String(value); this.children = []; },
+    get textContent() { return this.own + this.children.map((child) => child.textContent).join(''); },
+    appendChild(child) { this.children.push(child); return child; }
+  };
+}
+
+test('setCardValue writes a card\'s value, its unit in a span of its own, and its classes', () => {
+  const c = load({ document: { createElement: (tag) => Object.assign(cardElement(''), { tag }) } });
+  const card = cardElement('value current unknown');
+  c.setCardValue(card, '150', '%', 'current');
+  assert.equal(card.className, 'value current', 'the classes given, after value');
+  assert.equal(card.own, '150');
+  assert.deepEqual(card.children.map((child) => [child.tag, child.className, child.textContent]), [['span', 'unit', '%']]);
+  c.setCardValue(card, '-18.0', '', 'suggested unknown');
+  assert.equal(card.className, 'value suggested unknown');
+  assert.deepEqual([card.textContent, card.children.length], ['-18.0', 0], 'no unit leaves no span, and the earlier one goes');
+  c.setCardValue(card, '-20.1', ' LUFS');
+  assert.equal(card.className, 'value', 'no classes leave value alone');
+  assert.equal(card.textContent, '-20.1 LUFS');
+});
+
+test('setUnknown shows a card with no value as ---, with its classes and unknown', () => {
+  const c = load({ document: { createElement: () => cardElement('') } });
+  const card = cardElement('value suggested');
+  c.setCardValue(card, '150', '%', 'suggested');
+  c.setUnknown(card, 'suggested');
+  assert.deepEqual([card.textContent, card.className, card.children.length], ['---', 'value suggested unknown', 0]);
+  c.setUnknown(card);
+  assert.equal(card.className, 'value unknown');
 });
 
 test('showSettingsError shows #settingsError with the catalog\'s text for a key, and hides it', () => {
