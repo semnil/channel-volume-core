@@ -89,8 +89,7 @@ test('v8-to-lcov counts what the source ran, and no other script', () => {
 // What a line holds is read the way JavaScript reads it: a comment marker in a
 // string, a template literal or a regular expression is code, a slash after a
 // value is a division, and a line holding only a comment, or only whitespace,
-// is not reported. Each misreading here would turn a comment line into code or
-// a code line into comment, so it shows in which lines are reported.
+// is not reported. Each line below is reported, or not, by how those are read.
 test('v8-to-lcov tells comments from strings, templates, regular expressions and division', () => {
   const box = tempDir('cv-coverage-mask-');
   const write = (name, text) => fs.writeFileSync(path.join(box, name), text);

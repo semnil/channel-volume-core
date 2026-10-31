@@ -12,8 +12,7 @@ const { shared, tempDir } = require('./helpers.cjs');
 
 const SWEEP = shared('tools', 'mutation', 'sweep.mjs');
 const KNOBS = ['MUTATE_LINES', 'MUTATE_COUNT', 'MUTATE_CONFIRM', 'MUTATE_OPTIONAL', 'MUTATE_SHARD', 'MUTATE_TIMEOUT_MS'];
-// A sweep that never ends fails the case rather than holding the suite: the
-// longest sweep a case runs takes a few seconds.
+// A sweep that never ends fails the case rather than holding the suite.
 const TIMEOUT = 20000;
 
 const made = [];
@@ -65,9 +64,7 @@ const READS = 'require("./src.js");\n';
 // Fails a source that is not the committed one: every mutant is killed.
 const KILLS_ALL = 'const fs = require("fs");\nrequire("./src.js");\n'
   + 'process.exit(fs.readFileSync("src.js", "utf8") === fs.readFileSync("pristine.txt", "utf8") ? 0 : 1);\n';
-// Fails, or takes its time, where a guard body was dropped. The wait ends, so
-// a sweep that ignored MUTATE_TIMEOUT_MS would see the run pass rather than
-// wait on it for good.
+// Fails, or waits 4 s and then passes, where a guard body was dropped.
 const WAITS = 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 4000);';
 const onDroppedBody = (then) => 'const fs = require("fs");\nrequire("./src.js");\n'
   + `if (fs.readFileSync("src.js", "utf8").includes("if (false) {")) { ${then} }\n`;
@@ -226,8 +223,8 @@ test('a suite that cannot be started, or that a signal takes, gives no verdict',
 });
 
 test('the marker is taken away only where it is still the one the sweep made', () => {
-  // Another hand puts its own marker in place while the suite runs. Its file is
-  // made before the sweep's is let go, so the two are never the same inode.
+  // Another hand puts its own marker in place while the suite runs: a file of
+  // its own, renamed over the sweep's while the sweep's still exists.
   const replaced = box({
     'suite.js': 'const fs = require("fs");\n'
       + 'fs.writeFileSync(".marker-tmp", "someone else\\n");\n'
