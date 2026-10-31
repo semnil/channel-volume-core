@@ -1,6 +1,6 @@
 // common.test.cjs — core/common.js, what the extensions load ahead of their
-// own scripts: the settings key, the Target LUFS default and range, the gain
-// range, the runtime check, gain conversion and display (Auto's included), the
+// own scripts: the settings key and the settings read, the Target LUFS default
+// and range, the gain range, the runtime check, gain conversion and display (Auto's included), the
 // gain for a level, the slider keys, the catalog lookup, and the HTML escape.
 
 const assert = require('node:assert/strict');
@@ -39,6 +39,72 @@ test('the settings key, the Target LUFS default and range and the gain range are
   assert.equal(vm.runInContext('MAX_TARGET_LUFS', c), -6);
   assert.equal(vm.runInContext('MIN_GAIN', c), 0);
   assert.equal(vm.runInContext('MAX_GAIN', c), 6);
+});
+
+// chrome.storage with the two areas a case gives, each answering get with the
+// keys it holds and logging the area read.
+function settingsAreas({ sync = {}, local = {} } = {}) {
+  const reads = [];
+  const area = (name, held) => ({
+    async get(key) {
+      reads.push(name);
+      return Object.prototype.hasOwnProperty.call(held, key) ? { [key]: held[key] } : {};
+    }
+  });
+  return { reads, storage: { sync: area('sync', sync), local: area('local', local) } };
+}
+
+test('the settings are read from sync, and from local only where sync holds none', async () => {
+  const c = load();
+  const KEY = 'autoLoudnessSettings';
+  const fromSync = settingsAreas({ sync: { [KEY]: { targetLufs: -20 } }, local: { [KEY]: { targetLufs: -24 } } });
+  assert.equal(JSON.stringify(await c.readSettings(fromSync.storage)), '{"targetLufs":-20}');
+  assert.deepEqual(fromSync.reads, ['sync'], 'a copy left in local is not read once sync answers');
+
+  // A profile whose settings the worker has not moved yet.
+  const notMoved = settingsAreas({ local: { [KEY]: { targetLufs: -24 } } });
+  assert.equal(JSON.stringify(await c.readSettings(notMoved.storage)), '{"targetLufs":-24}');
+  assert.deepEqual(notMoved.reads, ['sync', 'local']);
+
+  // A value in sync that is no settings object does not hide the copy in local.
+  for (const value of [null, 'loud', 3, true, ['targetLufs']]) {
+    const unusable = settingsAreas({ sync: { [KEY]: value }, local: { [KEY]: { targetLufs: -24 } } });
+    assert.equal(JSON.stringify(await c.readSettings(unusable.storage)), '{"targetLufs":-24}', `sync holding ${JSON.stringify(value)}`);
+  }
+
+  for (const local of [{}, { [KEY]: 'loud' }, { [KEY]: [] }]) {
+    const neither = settingsAreas({ local });
+    assert.equal(JSON.stringify(await c.readSettings(neither.storage)), '{}', `local holding ${JSON.stringify(local[KEY])}`);
+    assert.deepEqual(neither.reads, ['sync', 'local', 'sync']);
+  }
+
+  const asked = [];
+  const named = settingsAreas({ sync: { other: { targetLufs: -10 } } });
+  const get = named.storage.sync.get;
+  named.storage.sync.get = (key) => { asked.push(key); return get(key); };
+  assert.equal(JSON.stringify(await c.readSettings(named.storage, 'other')), '{"targetLufs":-10}', 'under the key given');
+  assert.deepEqual(asked, ['other']);
+});
+
+test('readSettings reads chrome.storage under SETTINGS_KEY where it is given neither', async () => {
+  const { storage, reads } = settingsAreas({ local: { autoLoudnessSettings: { displayUnit: 'dB' } } });
+  const c = load({ chrome: { storage } });
+  assert.equal(JSON.stringify(await c.readSettings()), '{"displayUnit":"dB"}');
+  assert.deepEqual(reads, ['sync', 'local']);
+});
+
+test('a settings read made across the move answers with what the move put in sync', async () => {
+  const c = load();
+  const KEY = 'autoLoudnessSettings';
+  // Sync is read empty; the move then writes sync and clears local before the
+  // local read is made, so local is empty too. The settings are in sync by then.
+  const moved = { targetLufs: -24, adGainDb: -12 };
+  const across = settingsAreas({ local: { [KEY]: moved } });
+  across.storage.local.get = async () => {
+    across.storage.sync = settingsAreas({ sync: { [KEY]: moved } }).storage.sync;
+    return {};
+  };
+  assert.equal(await c.readSettings(across.storage), moved);
 });
 
 test('isContextValid answers whether the runtime can still be reached', () => {
