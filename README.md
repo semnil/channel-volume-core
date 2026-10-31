@@ -10,7 +10,7 @@ The files the channel-volume extensions — [yt-channel-volume](https://github.c
 
 | Group | Files |
 |---|---|
-| `base` | `pack.py`, `gen_icons.py`, the mutation sweep (`tools/mutation/`), the coverage converter (`tools/coverage/`), `tools/check-shared.sh`, `.github/workflows/ci.yaml`, the daily sync (`.github/workflows/sync-core.yaml` and `tools/sync-core.sh`) and `.gitattributes`, which checks every shared file out with LF line endings |
+| `base` | `pack.py`, `gen_icons.py`, the mutation sweep (`tools/mutation/`), the coverage converter (`tools/coverage/`), `tools/check-shared.sh`, `.github/workflows/ci.yaml`, the daily sync (`.github/workflows/sync-core.yaml`, which runs this repository's `sync-core.sh`) and `.gitattributes`, which checks every shared file out with LF line endings |
 | `release` | `.github/workflows/release.yaml`, `.github/workflows/tag-release.yaml` and the scripts they run |
 | `auto-merge` | The Dependabot auto-merge workflow and its test |
 | `public` | `CODEOWNERS`, `FUNDING.yml` and the issue templates |
@@ -38,7 +38,7 @@ Each extension has a `core.json` at its root. Nothing the extension loads refers
 ## Changing a shared file
 
 1. Change the file under `shared/` here, with its tests under `test/`, and merge it.
-2. Each extension's Sync Core workflow (`.github/workflows/sync-core.yaml`) runs once a day at 03:00 JST, and when run by hand from the extension's Actions tab. Where this repository's `main` has moved past the commit the extension's `core.json` locks, it opens a pull request from `sync/channel-volume-core` that copies the files from `main` and locks that commit, or updates the one already open. Where the extension allows auto-merge, the pull request merges once its required checks pass; elsewhere it waits to be merged by hand. A branch someone else has added a commit to is left as it is, and the run fails naming them.
+2. Each extension's Sync Core workflow (`.github/workflows/sync-core.yaml`) runs once a day at 03:00 JST, and when run by hand from the extension's Actions tab. It clones this repository and runs its `sync-core.sh` in the extension's default branch, whichever branch the run was started on. Where this repository's `main` has moved past the commit the extension's `core.json` locks, that opens a pull request from `sync/channel-volume-core` that copies the files from `main` and locks that commit, or updates the one already open. Where the extension allows auto-merge, the pull request merges once its required checks pass; elsewhere it waits to be merged by hand. A branch someone else has added a commit to is left as it is, and the run fails naming them.
 3. The copy can also be made by hand, from a clone of this repository at the commit to take:
 
    ```sh
