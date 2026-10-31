@@ -276,6 +276,67 @@ test('a settings change that changes nothing does not write back over settings s
   }
 });
 
+test('tableWrite gives the own write a type names after the prefix, and null otherwise', () => {
+  const c = load();
+  const table = { save: () => 'saved' };
+  assert.equal(c.tableWrite(table, 'store:', 'store:save'), table.save);
+  for (const type of ['store:toString', 'store:', 'save', 'other:save', undefined, null, 5, ['store:save']]) {
+    assert.equal(c.tableWrite(table, 'store:', type), null, JSON.stringify(type));
+  }
+});
+
+test('WriteRefused names its rejection invalid-mutation', () => {
+  const c = load();
+  const err = vm.runInContext('new WriteRefused("not a channel")', c);
+  assert.equal(err.reason, 'invalid-mutation');
+  assert.equal(err.message, 'not a channel');
+  assert.equal(err.name, 'WriteRefused');
+  assert.equal(vm.runInContext('new WriteRefused("x") instanceof Error', c), true);
+});
+
+test('createWriteListener answers a write with ok and its result, and a rejection with its reason', async () => {
+  const logged = [];
+  const console = {
+    warn: (...args) => logged.push(['warn', ...args.map(String)]),
+    error: (...args) => logged.push(['error', String(args[0])])
+  };
+  const c = load({ console });
+  const writes = {
+    save: async () => ({ settings: { a: 1 } }),
+    plain: async () => undefined,
+    refused: () => { throw vm.runInContext('new WriteRefused("no")', c); },
+    blocked: async () => { throw Object.assign(new Error('cycle'), { reason: 'stored-state-invalid' }); },
+    broken: async () => { throw new Error('quota'); }
+  };
+  const listener = c.createWriteListener({
+    prefix: '[T]',
+    ignoredTypes: ['stateChanged'],
+    route: (msg) => (writes[msg?.type] ? { write: writes[msg.type], label: msg.type + ' write', failed: 'storage-update-failed' } : null)
+  });
+  // The answer is made in the context's realm, so it is compared as JSON.
+  const ask = (msg) => new Promise((resolve) => {
+    const kept = listener(msg, {}, (answer) => resolve(JSON.parse(JSON.stringify(answer))));
+    if (kept !== true) resolve({ kept });
+  });
+  assert.deepEqual(await ask({ type: 'save' }), { ok: true, settings: { a: 1 } });
+  assert.deepEqual(await ask({ type: 'plain' }), { ok: true });
+  assert.deepEqual(await ask({ type: 'refused' }), { ok: false, reason: 'invalid-mutation' });
+  assert.deepEqual(await ask({ type: 'blocked' }), { ok: false, reason: 'stored-state-invalid' });
+  assert.deepEqual(await ask({ type: 'broken' }), { ok: false, reason: 'storage-update-failed' });
+  assert.deepEqual(logged, [
+    ['error', '[T] refused write rejected as invalid'],
+    ['error', '[T] blocked write blocked by the stored state'],
+    ['error', '[T] broken write failed']
+  ]);
+  logged.length = 0;
+  const unanswered = () => assert.fail('a message that asks for no write is answered');
+  assert.equal(listener({ type: 'stateChanged' }, {}, unanswered), false, 'an ignored type is left unanswered');
+  assert.deepEqual(logged, [], 'and not logged');
+  assert.equal(listener({ type: 'other' }, {}, unanswered), false);
+  assert.equal(listener(null, {}, unanswered), false);
+  assert.deepEqual(logged, [['warn', '[T] unknown message type', 'other'], ['warn', '[T] unknown message type', 'undefined']]);
+});
+
 test('createStoredMapWriter writes a changed map back, one write after the other', async () => {
   const { held, calls, storage } = storageFor({ local: { channels: { a: 1 } } });
   const c = load({ chrome: { runtime: { id: 'x' }, storage } });
