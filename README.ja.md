@@ -1,5 +1,7 @@
 # channel-volume-core
 
+[![codecov](https://codecov.io/gh/semnil/channel-volume-core/graph/badge.svg)](https://codecov.io/gh/semnil/channel-volume-core)
+
 [English](README.md)
 
 channel-volume の拡張機能 ([yt-channel-volume](https://github.com/semnil/yt-channel-volume)、[twitch-channel-volume](https://github.com/semnil/twitch-channel-volume) とその兄弟) が共通に使うファイルです。各拡張機能はその写しを持ち、写しがこのリポジトリの記録したコミットと違うと、その拡張機能の CI が失敗します。

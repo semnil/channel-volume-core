@@ -1,5 +1,7 @@
 # channel-volume-core
 
+[![codecov](https://codecov.io/gh/semnil/channel-volume-core/graph/badge.svg)](https://codecov.io/gh/semnil/channel-volume-core)
+
 [日本語](README.ja.md)
 
 The files the channel-volume extensions — [yt-channel-volume](https://github.com/semnil/yt-channel-volume), [twitch-channel-volume](https://github.com/semnil/twitch-channel-volume) and their siblings — share. Each extension carries a copy of them, and its CI fails where a copy differs from the commit of this repository the extension locks.
