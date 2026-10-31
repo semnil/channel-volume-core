@@ -2,8 +2,9 @@
 // own scripts: the settings key, the settings read, move and write, the serial
 // queue, the stored map writer, the Target LUFS default and range, the gain
 // range, the runtime check, gain conversion and display (Auto's included), the
-// gain for a level, the gain a write may store, the stored gain per type, the
-// slider keys, the catalog lookup, and the HTML escape.
+// gain for a level, the gain a write may store, the stored gain per type, a
+// row's name and Auto flags, the slider keys, the catalog lookup, and the HTML
+// escape.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -443,6 +444,47 @@ test('expandLegacyGain gives every slot the earlier single gain where none is a 
   assert.equal(expand({ gainLive: 1 }), '{"gainLive":1}', 'an entry without it is left as it is');
   const entry = { gain: 1 };
   assert.equal(c.expandLegacyGain(entry, SLOTS), entry, 'in place');
+});
+
+test('applyEntryName names a row from text other than its id, and a nameless row by its id where asked', () => {
+  const c = load();
+  const named = (entry, name, nameNewRow) => { c.applyEntryName(entry, 'UC1', name, nameNewRow); return entry.name; };
+  assert.equal(named({}, 'Real'), 'Real');
+  assert.equal(named({ name: 'Old' }, 'New'), 'New', 'a new name replaces the stored one');
+  assert.equal(named({ name: 'Real' }, 'UC1'), 'Real', 'the id does not replace a stored name');
+  for (const name of [undefined, null, '', 5, true, ['x'], { x: 1 }]) {
+    assert.equal(named({ name: 'Real' }, name), 'Real', `${JSON.stringify(name)} leaves the stored name`);
+    assert.equal(named({}, name), 'UC1', `${JSON.stringify(name)} names a nameless row by its id`);
+    assert.equal(named({}, name, false), undefined, `or leaves it nameless where asked (${JSON.stringify(name)})`);
+  }
+  assert.equal(named({}, 'UC1'), 'UC1', 'the id itself names a nameless row');
+  assert.equal(named({}, 'UC1', false), undefined);
+  assert.equal(named({}, 'Real', false), 'Real', 'a name is taken whatever nameNewRow says');
+});
+
+test('expandLegacyAutoFlag gives each type with no flag of its own the earlier flag, and removes it', () => {
+  const c = load();
+  const FIELDS = ['autoApplyLoudnessLive', 'autoApplyLoudnessVideo'];
+  const expand = (entry) => JSON.stringify(c.expandLegacyAutoFlag(entry, FIELDS));
+  assert.equal(expand({ autoApplyLoudness: true }), '{"autoApplyLoudnessLive":true,"autoApplyLoudnessVideo":true}');
+  assert.equal(expand({ autoApplyLoudness: true, autoApplyLoudnessLive: false }), '{"autoApplyLoudnessLive":false,"autoApplyLoudnessVideo":true}', 'a flag of its own stays');
+  assert.equal(expand({ autoApplyLoudness: 0 }), '{"autoApplyLoudnessLive":false,"autoApplyLoudnessVideo":false}', 'as a boolean');
+  assert.equal(expand({ autoApplyLoudnessLive: true }), '{"autoApplyLoudnessLive":true}', 'an entry without it is left as it is');
+  const entry = { autoApplyLoudness: false };
+  assert.equal(c.expandLegacyAutoFlag(entry, FIELDS), entry, 'in place');
+});
+
+test('autoFlagFor reads the type\'s flag, then the earlier one, then the stored-gain rule, then the default', () => {
+  const c = load();
+  const F = 'autoApplyLoudnessLive';
+  assert.equal(c.autoFlagFor({ [F]: false, autoApplyLoudness: true }, F, true, false), false, 'the type\'s own flag first');
+  assert.equal(c.autoFlagFor({ autoApplyLoudness: true }, F, false, true), true, 'then the earlier flag for every type');
+  assert.equal(c.autoFlagFor({}, F, true, true), false, 'then off where a stored gain turns it off');
+  assert.equal(c.autoFlagFor({}, F, true, false), true, 'then the default');
+  assert.equal(c.autoFlagFor({}, F, 0, false), false, 'as a boolean');
+  for (const entry of [null, undefined, 'x']) assert.equal(c.autoFlagFor(entry, F, true, true), true, `entry ${String(entry)}`);
+  const inherited = Object.create({ [F]: false });
+  assert.equal(c.autoFlagFor(inherited, F, true, false), true, 'a flag only on the prototype is no flag');
 });
 
 test('formatGain shows a gain in the display unit', () => {
