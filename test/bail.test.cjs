@@ -132,8 +132,6 @@ for (const runner of RUNNERS) {
         "fs.writeFileSync('gone.pid', String(process.pid));",
         ''
       ].join('\n'));
-      // A suite the signal takes while something it started in its group
-      // holds the output open and does not end on that signal.
       // A suite that does nothing with SIGTERM but go on, and something it
       // started.
       write('deaf.js', [
@@ -144,6 +142,8 @@ for (const runner of RUNNERS) {
         "require('fs').writeFileSync('deaf-suite.pid', String(process.pid));",
         forever
       ].join('\n'));
+      // A suite the signal takes while something it started in its group
+      // holds the output open and does not end on that signal.
       write('deaf-below.js', [
         "const { spawn } = require('child_process');",
         "require('fs').writeFileSync('deaf-below.pid', String(process.pid));",
