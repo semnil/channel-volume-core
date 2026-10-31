@@ -15,7 +15,8 @@
 # merges once its checks pass. Where core.json already locks main, a pull
 # request still open from the branch has nothing left to take: it is closed
 # and the branch deleted, unless someone else made or committed the branch's
-# last commit, in which case it is left open.
+# last commit, in which case it is left open. A fork's pull request from a
+# branch of the same name is not the run's: it is neither updated nor closed.
 set -euo pipefail
 
 core="${1:?usage: bash sync-core.sh <clone of channel-volume-core>}"
@@ -41,6 +42,13 @@ read_branch() {
   esac
 }
 
+# The number of the open pull request from the branch into the default
+# branch, empty where there is none. Pull requests from forks are not counted.
+open_pr() {
+  gh pr list --head "${branch}" --base "${default}" --state open \
+    --json number,isCrossRepository --jq '.[] | select(.isCrossRepository | not) | .number'
+}
+
 default="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)"
 current="$(git rev-parse --abbrev-ref HEAD)"
 if [[ "${current}" != "${default}" ]]; then
@@ -52,7 +60,7 @@ head="$(git -C "${core}" rev-parse HEAD)"
 locked="$(node -p "require('./core.json').core.commit")"
 if [[ "${head}" == "${locked}" ]]; then
   echo "core.json already locks ${head}"
-  open="$(gh pr list --head "${branch}" --state open --json number --jq '.[].number')"
+  open="$(open_pr)"
   if [[ -n "${open}" ]]; then
     read_branch
     if [[ -n "${remote}" && "${made}" != "${SYNC_GIT_EMAIL} ${SYNC_GIT_EMAIL}" ]]; then
@@ -92,7 +100,7 @@ git push -q --force-with-lease="refs/heads/${branch}:${remote}" origin "HEAD:ref
 body="channel-volume-core's main has moved from ${locked} to ${head}: https://github.com/semnil/channel-volume-core/compare/${locked}...${head}
 
 This pull request copies the shared files as ${head} holds them and locks that commit in core.json."
-open="$(gh pr list --head "${branch}" --state open --json number --jq '.[].number')"
+open="$(open_pr)"
 if [[ -n "${open}" ]]; then
   gh pr edit "${branch}" --body "${body}"
 else
