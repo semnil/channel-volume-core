@@ -77,6 +77,46 @@ test('every job names how long it may run', () => {
   assert.ok(jobs > 2, `the workflows carry jobs — found ${jobs}`);
 });
 
+// A step that reaches a host outside GitHub (a package index, Codecov, a
+// download) names how long it may run, so that the step that hung is the
+// one the run names rather than the job. A step is read from the text after
+// its `- `, whether `name:` or `uses:` comes first.
+const OUTSIDE = [/^(?: {8})?uses: codecov\//m, /\bpip3? install\b/, /\bnpm (install|ci)\b/, /\bapt-get\b/, /\bcurl\b/, /\bwget\b/];
+function outsideSteps(text) {
+  return text.split(/\n {6}- /).slice(1)
+    .filter((step) => OUTSIDE.some((pattern) => pattern.test(step)))
+    .map((step) => ({
+      label: (step.match(/name: (.*)/) || step.match(/uses: (\S+)/) || [step, step.split('\n')[0]])[1],
+      timed: /^ {8}timeout-minutes: \d+$/m.test(step)
+    }));
+}
+
+test('every step that reaches outside GitHub names how long it may run', () => {
+  let outside = 0;
+  for (const { name, text } of everyWorkflow()) {
+    for (const step of outsideSteps(text)) {
+      outside += 1;
+      assert.ok(step.timed, `${name}'s step "${step.label}" names how long it may run`);
+    }
+  }
+  // Without this the loop above would pass over workflows that reach nothing.
+  assert.ok(outside > 2, `the workflows reach outside GitHub — found ${outside}`);
+});
+
+test('a step that reaches outside GitHub is found with or without a name', () => {
+  const job = (step) => `jobs:\n  test:\n    steps:\n${step}\n      - run: echo done\n`;
+  const upload = 'codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1';
+  const cases = [
+    ['named, timed', `      - name: Upload Coverage\n        uses: ${upload}\n        timeout-minutes: 5`, true],
+    ['named, untimed', `      - name: Upload Coverage\n        uses: ${upload}`, false],
+    ['unnamed, timed', `      - uses: ${upload}\n        timeout-minutes: 5`, true],
+    ['unnamed, untimed', `      - uses: ${upload}`, false]
+  ];
+  for (const [what, step, timed] of cases) {
+    assert.deepEqual(outsideSteps(job(step)).map((found) => found.timed), [timed], what);
+  }
+});
+
 // A release is built from whatever commit its tag names: a build that packs
 // without running what CI runs turns a commit CI never passed into a release
 // asset. The two are held together here
