@@ -279,6 +279,39 @@ test('where git keeps the executable bit in its index, a file already there keep
   assert.equal(fs.readFileSync(path.join(extension, 'tools/run.sh'), 'utf8'), '#!/bin/sh\necho run\n');
 });
 
+test('where git keeps the executable bit in its index, a file in a conflict or only intended to be added is not touched', (t) => {
+  for (const state of ['conflict', 'intent']) {
+    const { core, extension } = fixture(t);
+    git(extension, 'init', '-q', '-b', 'main');
+    git(extension, 'config', 'core.filemode', 'false');
+    const commit = (message) => git(extension, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-am', message);
+    if (state === 'conflict') {
+      run(core, extension);
+      git(extension, 'add', 'core.json');
+      commit('sync');
+      git(extension, 'switch', '-q', '-c', 'other');
+      write(extension, 'pack.py', 'print("other")\n');
+      commit('other');
+      git(extension, 'switch', '-q', 'main');
+      write(extension, 'pack.py', 'print("main")\n');
+      commit('main');
+      spawnSync('git', ['-C', extension, 'merge', '-q', 'other'], { encoding: 'utf8' });
+    } else {
+      write(extension, 'pack.py', 'print("mine")\n');
+      git(extension, 'add', '-N', 'pack.py');
+    }
+    const index = git(extension, 'ls-files', '--stage');
+    const tree = fs.readFileSync(path.join(extension, 'pack.py'), 'utf8');
+    const lock = fs.readFileSync(path.join(extension, 'core.json'), 'utf8');
+    const result = run(core, extension);
+    assert.equal(result.status, 1, `${state}: ${result.stderr}`);
+    assert.ok(result.stderr.includes('in a merge conflict or only as intended to be added:\n  pack.py\n'), `${state}: ${result.stderr}`);
+    assert.equal(git(extension, 'ls-files', '--stage'), index, `${state}: the index is as it was`);
+    assert.equal(fs.readFileSync(path.join(extension, 'pack.py'), 'utf8'), tree, `${state}: the file is as it was`);
+    assert.equal(fs.readFileSync(path.join(extension, 'core.json'), 'utf8'), lock, `${state}: the lock does not move`);
+  }
+});
+
 // check-shared.sh fetches the locked commit and runs that commit's check. The
 // fixture core carries this repository's sync.mjs and check-shared.sh, and
 // answers a fetch for any commit it holds, as GitHub does.

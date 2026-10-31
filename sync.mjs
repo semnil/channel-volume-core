@@ -22,7 +22,9 @@
 // In a git repository whose core.filemode is false, as git sets it on Windows,
 // the executable bit is the one git's index holds: a sync sets it there, and a
 // check reads it from there. A file already in the index keeps what is staged
-// for it and takes the bit alone; a file the index does not hold is added.
+// for it and takes the bit alone; a file the index does not hold is added. A
+// sync there refuses, and writes nothing, where a shared file is in a merge
+// conflict or only intended to be added (git add -N).
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -92,6 +94,14 @@ function indexHoldsTheBit(extension) {
   }
 }
 
+// The shared files the index holds in a merge conflict, or only as intended
+// to be added.
+function unsettled(extension, files) {
+  const status = git(extension, ['status', '--porcelain=v2', '--untracked-files=no', '--', ...files]).toString('utf8');
+  return status.split('\n').filter((line) => line.startsWith('u ') || line.startsWith('1 .A '))
+    .map((line) => line.split(' ').slice(line.startsWith('u ') ? 10 : 8).join(' '));
+}
+
 function setIndexBit(extension, file, executable) {
   const mode = executable ? '100755' : '100644';
   const listed = git(extension, ['ls-files', '--stage', '--', file]).toString('utf8').trim();
@@ -138,6 +148,13 @@ function sync(core, extension) {
   }
   const copies = files.map((file) => ({ file, ...sharedAt(core, commit, file) }));
   const inIndex = indexHoldsTheBit(extension);
+  if (inIndex) {
+    const held = unsettled(extension, files);
+    if (held.length) {
+      throw new Error(`git's index holds these in a merge conflict or only as intended to be added:\n  `
+        + `${held.join('\n  ')}\nsettle them, then sync again`);
+    }
+  }
   for (const { file, bytes, executable } of copies) {
     const target = path.join(extension, file);
     fs.mkdirSync(path.dirname(target), { recursive: true });
