@@ -10,7 +10,7 @@ The files the channel-volume extensions — [yt-channel-volume](https://github.c
 
 | Group | Files |
 |---|---|
-| `base` | `pack.py`, `gen_icons.py`, the mutation sweep (`tools/mutation/`), the coverage converter (`tools/coverage/`), `tools/check-shared.sh` and `.github/workflows/ci.yaml` |
+| `base` | `pack.py`, `gen_icons.py`, the mutation sweep (`tools/mutation/`), the coverage converter (`tools/coverage/`), `tools/check-shared.sh`, `.github/workflows/ci.yaml` and `.gitattributes`, which checks every shared file out with LF line endings |
 | `release` | `.github/workflows/release.yaml`, `.github/workflows/tag-release.yaml` and the scripts they run |
 | `auto-merge` | The Dependabot auto-merge workflow and its test |
 | `public` | `CODEOWNERS`, `FUNDING.yml` and the issue templates |

@@ -316,7 +316,7 @@ test('where git keeps the executable bit in its index, a file in a conflict or o
 // check-shared.sh fetches the locked commit and runs that commit's check. The
 // fixture core carries this repository's sync.mjs and check-shared.sh, and
 // answers a fetch for any commit it holds, as GitHub does.
-function fetchedFixture(t) {
+function fetchedFixture(t, { attributes = false } = {}) {
   const box = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'cv-check-'));
   t.after(() => fs.rmSync(box, { recursive: true, force: true }));
   const core = path.join(box, 'core');
@@ -325,16 +325,17 @@ function fetchedFixture(t) {
   fs.mkdirSync(extension);
   git(core, 'init', '-q', '-b', 'main');
   git(core, 'config', 'uploadpack.allowReachableSHA1InWant', 'true');
-  write(core, 'groups.json', JSON.stringify({ base: ['pack.py', 'tools/check-shared.sh'] }));
+  write(core, 'groups.json', JSON.stringify({ base: [...(attributes ? ['.gitattributes'] : []), 'pack.py', 'tools/check-shared.sh'] }));
   write(core, 'sync.mjs', fs.readFileSync(SYNC));
+  if (attributes) write(core, 'shared/.gitattributes', fs.readFileSync(path.join(ROOT, 'shared/.gitattributes')));
   write(core, 'shared/pack.py', 'print("pack")\n');
   write(core, 'shared/tools/check-shared.sh', fs.readFileSync(path.join(ROOT, 'shared/tools/check-shared.sh')), 0o755);
   git(core, 'add', '-A');
   git(core, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'one');
   write(extension, 'core.json', JSON.stringify({ core: { groups: ['base'] } }));
   assert.equal(run(core, extension).status, 0);
-  const check = () => spawnSync('bash', ['tools/check-shared.sh'], {
-    cwd: extension, encoding: 'utf8', env: { ...process.env, CORE_SOURCE: core }
+  const check = (at = extension) => spawnSync('bash', ['tools/check-shared.sh'], {
+    cwd: at, encoding: 'utf8', env: { ...process.env, CORE_SOURCE: core }
   });
   return { core, extension, check };
 }
@@ -363,6 +364,19 @@ test('check-shared.sh holds the copies to the locked commit after the core moves
   assert.equal(check().status, 1, 'a later commit\'s copy is not the locked one');
 });
 
+test('check-shared.sh passes a clone whose git turns line endings into CRLF on checkout', (t) => {
+  const { extension, check } = fetchedFixture(t, { attributes: true });
+  git(extension, 'init', '-q', '-b', 'main');
+  git(extension, 'add', '-A');
+  git(extension, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-q', '-m', 'sync');
+  const cloned = path.join(path.dirname(extension), 'cloned');
+  execFileSync('git', ['clone', '-q', '--no-local', '--config', 'core.autocrlf=true', extension, cloned]);
+  assert.equal(fs.readFileSync(path.join(cloned, 'tools/check-shared.sh'), 'utf8').includes('\r'), false, 'the script is checked out with LF line endings');
+  const result = check(cloned);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /3 shared files are as [0-9a-f]{40} has them/);
+});
+
 test('check-shared.sh refuses a lock that names no commit', (t) => {
   const { extension, check } = fetchedFixture(t);
   write(extension, 'core.json', JSON.stringify({ core: { groups: ['base'], commit: 'main' } }));
@@ -389,4 +403,11 @@ test('groups.json and shared/ list the same files', () => {
   };
   walk('');
   assert.deepEqual([...listed].sort(), held.filter((file) => !NOT_SHARED.includes(file)).sort());
+});
+
+test('shared/.gitattributes checks every shared file out with LF line endings', () => {
+  const groups = JSON.parse(fs.readFileSync(path.join(ROOT, 'groups.json'), 'utf8'));
+  const rules = fs.readFileSync(path.join(ROOT, 'shared/.gitattributes'), 'utf8')
+    .split('\n').filter((line) => line && !line.startsWith('#'));
+  assert.deepEqual(rules.sort(), Object.values(groups).flat().map((file) => `/${file} text eol=lf`).sort());
 });

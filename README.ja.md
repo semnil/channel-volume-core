@@ -10,7 +10,7 @@ channel-volume の拡張機能 ([yt-channel-volume](https://github.com/semnil/yt
 
 | 組 | ファイル |
 |---|---|
-| `base` | `pack.py`、`gen_icons.py`、変異掃引 (`tools/mutation/`)、カバレッジの変換 (`tools/coverage/`)、`tools/check-shared.sh`、`.github/workflows/ci.yaml` |
+| `base` | `pack.py`、`gen_icons.py`、変異掃引 (`tools/mutation/`)、カバレッジの変換 (`tools/coverage/`)、`tools/check-shared.sh`、`.github/workflows/ci.yaml`、共有ファイルをどこでも LF の改行で取り出させる `.gitattributes` |
 | `release` | `.github/workflows/release.yaml`、`.github/workflows/tag-release.yaml` と、それらが走らせるスクリプト |
 | `auto-merge` | Dependabot の自動マージの workflow とそのテスト |
 | `public` | `CODEOWNERS`、`FUNDING.yml`、issue のテンプレート |
