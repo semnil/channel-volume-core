@@ -1,7 +1,8 @@
 // common.test.cjs — core/common.js, what the extensions load ahead of their
-// own scripts: the settings key and the settings read, the Target LUFS default
-// and range, the gain range, the runtime check, gain conversion and display (Auto's included), the
-// gain for a level, the slider keys, the catalog lookup, and the HTML escape.
+// own scripts: the settings key, the settings read and move, the serial queue,
+// the Target LUFS default and range, the gain range, the runtime check, gain
+// conversion and display (Auto's included), the gain for a level, the slider
+// keys, the catalog lookup, and the HTML escape.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -105,6 +106,114 @@ test('a settings read made across the move answers with what the move put in syn
     return {};
   };
   assert.equal(await c.readSettings(across.storage), moved);
+});
+
+// chrome.storage holding what a case gives, logging every call.
+function storageFor({ sync = {}, local = {} } = {}) {
+  const held = { sync: { ...sync }, local: { ...local } };
+  const calls = [];
+  const area = (name) => ({
+    async get(key) {
+      calls.push(`${name}.get`);
+      return Object.prototype.hasOwnProperty.call(held[name], key) ? { [key]: held[name][key] } : {};
+    },
+    async set(items) { calls.push(`${name}.set`); Object.assign(held[name], items); },
+    async remove(key) { calls.push(`${name}.remove`); delete held[name][key]; }
+  });
+  return { held, calls, storage: { sync: area('sync'), local: area('local') } };
+}
+
+test('moveSettingsToSync moves a settings object from local to sync, and clears local', async () => {
+  const c = load();
+  const KEY = 'autoLoudnessSettings';
+  const fresh = storageFor({ local: { [KEY]: { targetLufs: -24 } } });
+  assert.equal(await c.moveSettingsToSync(fresh.storage), true);
+  assert.equal(JSON.stringify(fresh.held), '{"sync":{"autoLoudnessSettings":{"targetLufs":-24}},"local":{}}');
+  assert.deepEqual(fresh.calls, ['local.get', 'sync.get', 'sync.set', 'local.remove'], 'sync is written before local is cleared');
+
+  const synced = storageFor({ sync: { [KEY]: { targetLufs: -20 } }, local: { [KEY]: { targetLufs: -24 } } });
+  assert.equal(await c.moveSettingsToSync(synced.storage), true);
+  assert.equal(JSON.stringify(synced.held), '{"sync":{"autoLoudnessSettings":{"targetLufs":-20}},"local":{}}', 'what sync holds stays');
+
+  for (const value of [null, 'loud', 3, ['targetLufs']]) {
+    const unusable = storageFor({ local: { [KEY]: value } });
+    assert.equal(await c.moveSettingsToSync(unusable.storage), true);
+    assert.equal(JSON.stringify(unusable.held), '{"sync":{},"local":{}}', `local holding ${JSON.stringify(value)} is cleared, not moved`);
+  }
+  const overUnusable = storageFor({ sync: { [KEY]: 'loud' }, local: { [KEY]: { targetLufs: -24 } } });
+  await c.moveSettingsToSync(overUnusable.storage);
+  assert.equal(JSON.stringify(overUnusable.held.sync), '{"autoLoudnessSettings":{"targetLufs":-24}}', 'over a value in sync that is no settings object');
+
+  const none = storageFor({ sync: { [KEY]: { targetLufs: -20 } } });
+  assert.equal(await c.moveSettingsToSync(none.storage), false);
+  assert.deepEqual(none.calls, ['local.get'], 'one read where local holds nothing');
+});
+
+test('moveSettingsToSync clears local only once sync is written, and answers a failure as its own', async () => {
+  const c = load();
+  const KEY = 'autoLoudnessSettings';
+  const slow = storageFor({ local: { [KEY]: { targetLufs: -24 } } });
+  let land, asked;
+  const reached = new Promise((resolve) => { asked = resolve; });
+  const set = slow.storage.sync.set;
+  slow.storage.sync.set = (items) => new Promise((resolve) => { land = () => resolve(set(items)); asked(); });
+  const moving = c.moveSettingsToSync(slow.storage);
+  await reached;
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.deepEqual(slow.calls, ['local.get', 'sync.get'], 'local is not cleared while the sync write is out');
+  land();
+  assert.equal(await moving, true);
+  assert.deepEqual(slow.calls, ['local.get', 'sync.get', 'sync.set', 'local.remove']);
+
+  const refused = storageFor({ local: { [KEY]: { targetLufs: -24 } } });
+  refused.storage.sync.set = async () => { throw new Error('sync quota'); };
+  await assert.rejects(c.moveSettingsToSync(refused.storage), /sync quota/);
+  assert.equal(JSON.stringify(refused.held.local), '{"autoLoudnessSettings":{"targetLufs":-24}}', 'a failed sync write leaves local as it was');
+
+  const stuck = storageFor({ local: { [KEY]: { targetLufs: -24 } } });
+  stuck.storage.local.remove = async () => { throw new Error('local refused'); };
+  await assert.rejects(c.moveSettingsToSync(stuck.storage), /local refused/);
+});
+
+test('moveSettingsToSync writes what keep gives, under the key given, and reads chrome.storage by default', async () => {
+  const c = load();
+  const kept = storageFor({ local: { other: { targetLufs: -24, dropped: true } } });
+  const asked = [];
+  const keep = (settings) => { asked.push(settings); const { dropped, ...rest } = settings; return rest; };
+  assert.equal(await c.moveSettingsToSync(kept.storage, 'other', keep), true);
+  assert.equal(JSON.stringify(kept.held), '{"sync":{"other":{"targetLufs":-24}},"local":{}}');
+  assert.equal(asked.length, 1);
+
+  const byDefault = storageFor({ local: { autoLoudnessSettings: { displayUnit: 'dB' } } });
+  const d = load({ chrome: { storage: byDefault.storage } });
+  assert.equal(await d.moveSettingsToSync(), true);
+  assert.equal(JSON.stringify(byDefault.held.sync), '{"autoLoudnessSettings":{"displayUnit":"dB"}}');
+});
+
+test('createSerialQueue runs work one after the other, past a failure, answering as each settles', async () => {
+  const c = load();
+  const queue = c.createSerialQueue();
+  const order = [];
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const first = queue(async () => { order.push('first starts'); await held; order.push('first ends'); return 1; });
+  const second = queue(async () => { order.push('second'); throw new Error('second failed'); });
+  const third = queue(() => { order.push('third'); return 3; });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(order, ['first starts'], 'the next waits while one is under way');
+  release();
+  assert.equal(await first, 1);
+  await assert.rejects(second, /second failed/);
+  assert.equal(await third, 3, 'a failure does not stop the queue');
+  assert.deepEqual(order, ['first starts', 'first ends', 'second', 'third']);
+
+  const other = c.createSerialQueue();
+  let otherRan = false;
+  const blocked = queue(() => new Promise(() => {}));
+  await other(() => { otherRan = true; });
+  assert.equal(otherRan, true, 'each queue runs apart');
+  void blocked;
 });
 
 test('isContextValid answers whether the runtime can still be reached', () => {
