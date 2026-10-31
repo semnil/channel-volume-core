@@ -446,6 +446,12 @@ test('expandLegacyGain gives every slot the earlier single gain where none is a 
   assert.equal(c.expandLegacyGain(entry, SLOTS), entry, 'in place');
 });
 
+test('isRowKey takes non-empty text alone', () => {
+  const c = load();
+  for (const key of ['UC1', 'channel:ch7', 'login:x', ' ', 'undefined']) assert.equal(c.isRowKey(key), true, JSON.stringify(key));
+  for (const key of ['', undefined, null, 5, true, ['UC1'], { key: 'UC1' }]) assert.equal(c.isRowKey(key), false, JSON.stringify(key));
+});
+
 test('applyEntryName names a row from text other than its id, and a nameless row by its id where asked', () => {
   const c = load();
   const named = (entry, name, nameNewRow) => { c.applyEntryName(entry, 'UC1', name, nameNewRow); return entry.name; };
