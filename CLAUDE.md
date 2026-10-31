@@ -6,7 +6,7 @@ The files the channel-volume extensions share. Each extension carries a copy of 
 
 | Path | Role |
 |------|------|
-| `shared/` | The shared files, each at the path it has inside an extension |
+| `shared/` | The shared files, each at the path it has inside an extension. `shared/core/` holds the code the extensions run (classic scripts, loaded ahead of each extension's own `utils.js`) |
 | `groups.json` | Sorts every file under `shared/` into exactly one group (`base`, `release`, `auto-merge`, `public`); `test/sync.test.mjs` holds the two lists to each other |
 | `sync.mjs` | `node sync.mjs <core> <extension>` writes the files of the extension's groups as `<core>`'s `HEAD` commit holds them (executable bit included) and locks that commit in the extension's `core.json`. `--check <core> <extension>` compares the extension with the commit it locks and exits 1 naming each file that differs, is missing or changed its executable bit. Both read from the commit, never from `<core>`'s working tree |
 | `shared/tools/check-shared.sh` | Run by each extension's CI test job: fetches the locked commit from `https://github.com/semnil/channel-volume-core` (or `CORE_SOURCE`) and runs that commit's `sync.mjs --check` |
@@ -32,7 +32,7 @@ node --test test/*.test.cjs test/*.test.mjs
 # The coverage report CI uploads to Codecov, made locally (<dir> is any empty directory)
 NODE_V8_COVERAGE=<dir> node --test test/*.test.cjs test/*.test.mjs
 node coverage-copies.mjs <dir>
-node shared/tools/coverage/v8-to-lcov.mjs <dir> coverage.lcov sync.mjs $(git ls-files 'shared/*.mjs')
+node shared/tools/coverage/v8-to-lcov.mjs <dir> coverage.lcov sync.mjs $(git ls-files 'shared/*.mjs' 'shared/*.js')
 
 # Sweep one shared file for mutants the tests let through (writes into the tree
 # it is given, so give it a worktree rather than the checkout being worked in).

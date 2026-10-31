@@ -53,7 +53,7 @@ jobs:
       - name: Make The Coverage Report 📊
         run: |
           node coverage-copies.mjs "$RUNNER_TEMP/v8-coverage"
-          node shared/tools/coverage/v8-to-lcov.mjs "$RUNNER_TEMP/v8-coverage" "$RUNNER_TEMP/coverage.lcov" sync.mjs $(git ls-files 'shared/*.mjs')
+          node shared/tools/coverage/v8-to-lcov.mjs "$RUNNER_TEMP/v8-coverage" "$RUNNER_TEMP/coverage.lcov" sync.mjs $(git ls-files 'shared/*.mjs' 'shared/*.js')
 
       - name: Upload Coverage ☂️
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
