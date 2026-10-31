@@ -1,8 +1,8 @@
 // common.test.cjs — core/common.js, what the extensions load ahead of their
 // own scripts: the settings key, the settings read, move and write, the serial
-// queue, the Target LUFS default and range, the gain range, the runtime check,
-// gain conversion and display (Auto's included), the gain for a level, the
-// slider keys, the catalog lookup, and the HTML escape.
+// queue, the stored map writer, the Target LUFS default and range, the gain
+// range, the runtime check, gain conversion and display (Auto's included), the
+// gain for a level, the slider keys, the catalog lookup, and the HTML escape.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -272,6 +272,67 @@ test('a settings change that changes nothing does not write back over settings s
     assert.deepEqual(raced.calls.filter((call) => call.endsWith('.set')), [], `${field}: nothing is written`);
     assert.equal(JSON.stringify(raced.held.sync[KEY]), JSON.stringify({ targetLufs: -18, displayUnit: '%', showGainOverlay: false, ...theirs }), `${field}: sync keeps what it took`);
   }
+});
+
+test('createStoredMapWriter writes a changed map back, one write after the other', async () => {
+  const { held, calls, storage } = storageFor({ local: { channels: { a: 1 } } });
+  const c = load({ chrome: { runtime: { id: 'x' }, storage } });
+  const write = c.createStoredMapWriter('channels');
+  await Promise.all([
+    write((map) => { map.b = 2; }),
+    write((map) => { map.c = map.b + 1; })
+  ]);
+  assert.equal(JSON.stringify(held.local.channels), '{"a":1,"b":2,"c":3}', 'the second write reads what the first left');
+
+  calls.length = 0;
+  await write((map) => { map.a = 1; });
+  assert.deepEqual(calls, ['local.get'], 'a map mutate leaves as it was is not written');
+  await write(() => {}, { marker: true });
+  assert.equal(JSON.stringify(held.local), '{"channels":{"a":1,"b":2,"c":3},"marker":true}', 'extra keys are written whatever mutate did');
+
+  const empty = storageFor();
+  const e = load({ chrome: { runtime: { id: 'x' }, storage: empty.storage } });
+  await e.createStoredMapWriter('channels')((map) => { map.first = true; });
+  assert.equal(JSON.stringify(empty.held.local), '{"channels":{"first":true}}', 'a map not stored yet starts empty');
+
+  const failing = c.createStoredMapWriter('channels');
+  await assert.rejects(failing(() => { throw new Error('bad mutate'); }), /bad mutate/);
+  await failing((map) => { map.d = 4; });
+  assert.equal(held.local.channels.d, 4, 'a failed write does not stop the next');
+});
+
+test('createStoredMapWriter starts a write once the set before it has landed, and answers a failed set', async () => {
+  const slow = storageFor({ local: { channels: {} } });
+  const set = slow.storage.local.set;
+  let land;
+  slow.storage.local.set = (items) => new Promise((resolve) => { land = () => resolve(set(items)); });
+  const c = load({ chrome: { runtime: { id: 'x' }, storage: slow.storage } });
+  const write = c.createStoredMapWriter('channels');
+  const first = write((map) => { map.a = 1; });
+  let secondSaw;
+  const second = write((map) => { secondSaw = JSON.stringify(map); map.b = 2; });
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  assert.equal(secondSaw, undefined, 'the next write waits while a set is out');
+  land();
+  await first;
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+  land();
+  await second;
+  assert.equal(secondSaw, '{"a":1}', 'and reads what that set left');
+
+  const refused = storageFor({ local: { channels: {} } });
+  refused.storage.local.set = async () => { throw new Error('local quota'); };
+  const d = load({ chrome: { runtime: { id: 'x' }, storage: refused.storage } });
+  await assert.rejects(d.createStoredMapWriter('channels')((map) => { map.a = 1; }), /local quota/);
+});
+
+test('createStoredMapWriter writes nothing where the runtime cannot be reached', async () => {
+  const { calls, storage } = storageFor({ local: { channels: { a: 1 } } });
+  const c = load({ chrome: { runtime: {}, storage } });
+  let ran = false;
+  await c.createStoredMapWriter('channels')(() => { ran = true; });
+  assert.equal(ran, false, 'mutate never runs');
+  assert.deepEqual(calls, [], 'and storage is not read');
 });
 
 test('createSerialQueue runs work one after the other, past a failure, answering as each settles', async () => {
