@@ -17,6 +17,15 @@ this file is read as an entry. What `--verify` cannot see is an entry whose
 mutant the tests have come to kill: the site is still there, so only a sweep of
 that file finds it, by what it does not find standing.
 
+## shared/core/common.js
+
+`expandLegacyGain`'s check that the entry has a gain of the earlier form.
+Without it, an entry with none goes on: `Number.isFinite(undefined)` is false,
+so no slot is written, and `delete entry.gain` on a key that is not there is a
+no-op — the same entry comes back, unchanged.
+
+- `shared/core/common.js:177` a guard is dropped ×1 — if (!Object.prototype.hasOwnProperty.call(entry, 'gain')) return entry;
+
 ## shared/tools/mutation/bail.mjs
 
 The refusal on Windows. On macOS and Linux the platform is never `win32`, so
