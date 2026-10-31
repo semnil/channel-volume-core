@@ -17,6 +17,7 @@ const WORKFLOW = shared('.github', 'workflows', 'sync-core.yaml');
 const BRANCH = 'sync/channel-volume-core';
 const BOT = { name: 'sync-app[bot]', email: '1+sync-app[bot]@users.noreply.github.com' };
 const SOMEONE = ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid'];
+const GIT = spawnSync('bash', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
 
 const git = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
 function write(dir, file, text, mode) {
@@ -69,14 +70,14 @@ function fixture(t, { pr = '', autoMerge = 'true' } = {}) {
   };
   // Each run starts on the default branch, as the workflow's checkout leaves
   // it, unless the case says otherwise.
-  const run = ({ from = core, on = 'main' } = {}) => {
+  const run = ({ from = core, on = 'main', bin = [] } = {}) => {
     git(extension, 'switch', '-q', on);
     return spawnSync('bash', [SCRIPT, from], {
       cwd: extension,
       encoding: 'utf8',
       env: {
         ...process.env,
-        PATH: [path.join(box, 'bin'), process.env.PATH].join(path.delimiter),
+        PATH: [...bin, path.join(box, 'bin'), process.env.PATH].join(path.delimiter),
         GH_LOG: log,
         GH_PR: pr,
         GH_AUTO_MERGE: autoMerge,
@@ -154,8 +155,63 @@ test('sync-core.sh writes its own branch anew, and leaves one someone else added
   moveCore('print("four")\n');
   const refused = run();
   assert.equal(refused.status, 1);
-  assert.equal(refused.stderr, `${BRANCH} ends in a commit by t@example.invalid; it is left as it is\n`);
+  assert.equal(refused.stderr, `${BRANCH} ends in a commit by t@example.invalid, committed by t@example.invalid; it is left as it is\n`);
   assert.equal(git(origin, 'rev-parse', BRANCH), theirs, 'their commit stays at the head');
+});
+
+test('sync-core.sh leaves a commit of the App\'s that someone else amended', (t) => {
+  const { origin, extension, moveCore, run } = fixture(t);
+  moveCore('print("two")\n');
+  assert.equal(run().status, 0);
+  git(extension, 'fetch', '-q', 'origin', BRANCH);
+  git(extension, 'switch', '-q', '-C', 'amended', 'FETCH_HEAD');
+  write(extension, 'notes.txt', 'folded into the App\'s commit\n');
+  git(extension, 'add', 'notes.txt');
+  git(extension, ...SOMEONE, 'commit', '-q', '--amend', '--no-edit');
+  git(extension, 'push', '-q', '--force', 'origin', `amended:${BRANCH}`);
+  const amended = git(origin, 'rev-parse', BRANCH);
+  moveCore('print("three")\n');
+  const refused = run();
+  assert.equal(refused.status, 1);
+  assert.equal(refused.stderr, `${BRANCH} ends in a commit by ${BOT.email}, committed by t@example.invalid; it is left as it is\n`);
+  assert.equal(git(origin, 'rev-parse', BRANCH), amended);
+});
+
+test('sync-core.sh does not push over a commit that reaches the branch while it runs', (t) => {
+  const { box, core, origin, moveCore, run, addTheirs } = fixture(t);
+  moveCore('print("two")\n');
+  assert.equal(run().status, 0);
+  // Someone's commit, made now and pushed by the sync step of the next run,
+  // after the run has read the branch.
+  const theirs = addTheirs();
+  const bots = git(origin, 'rev-parse', `${BRANCH}~1`);
+  git(origin, 'update-ref', `refs/heads/${BRANCH}`, bots);
+  write(core, 'sync-real.mjs', fs.readFileSync(SYNC));
+  write(core, 'sync.mjs', [
+    "import { execFileSync } from 'node:child_process';",
+    `execFileSync('git', ['-C', ${JSON.stringify(origin)}, 'update-ref', 'refs/heads/${BRANCH}', ${JSON.stringify(theirs)}]);`,
+    "await import('./sync-real.mjs');",
+    ''
+  ].join('\n'));
+  moveCore('print("three")\n');
+  const result = run();
+  assert.notEqual(result.status, 0, 'the push is refused');
+  assert.equal(git(origin, 'rev-parse', BRANCH), theirs, 'their commit stays at the head');
+});
+
+test('sync-core.sh stops where it cannot read the branch', (t) => {
+  const { box, origin, moveCore, run, calls, addTheirs } = fixture(t);
+  moveCore('print("two")\n');
+  assert.equal(run().status, 0);
+  const theirs = addTheirs();
+  write(box, 'broken/git', `#!/usr/bin/env bash\nif [ "$1" = ls-remote ]; then exit 128; fi\nexec ${JSON.stringify(GIT)} "$@"\n`, 0o755);
+  moveCore('print("three")\n');
+  const before = calls();
+  const refused = run({ bin: [path.join(box, 'broken')] });
+  assert.equal(refused.status, 1);
+  assert.equal(refused.stderr, `origin's ${BRANCH} could not be read (git ls-remote exit 128)\n`);
+  assert.equal(git(origin, 'rev-parse', BRANCH), theirs, 'what is there stays');
+  assert.doesNotMatch(calls().slice(before.length), /^pr /m);
 });
 
 test('sync-core.sh runs from the default branch only', (t) => {

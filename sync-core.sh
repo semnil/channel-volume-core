@@ -9,8 +9,10 @@
 #   bash <clone of channel-volume-core>/sync-core.sh <clone of channel-volume-core>
 # The pull request comes from one branch, sync/channel-volume-core, which each
 # run writes anew from the default branch. A branch whose last commit someone
-# else made is left as it is, and the run fails naming that author. Where the
-# repository allows auto-merge, the pull request merges once its checks pass.
+# else made or committed is left as it is, and the run fails naming them; so
+# does a branch that moves while the run is under way, and a run that cannot
+# read the branch. Where the repository allows auto-merge, the pull request
+# merges once its checks pass.
 set -euo pipefail
 
 core="${1:?usage: bash sync-core.sh <clone of channel-volume-core>}"
@@ -30,21 +32,32 @@ if [[ "${head}" == "${locked}" ]]; then
   exit 0
 fi
 
-if git ls-remote --exit-code --heads origin "${branch}" > /dev/null; then
-  git fetch -q origin "${branch}"
-  author="$(git log -1 --format=%ae FETCH_HEAD)"
-  if [[ "${author}" != "${SYNC_GIT_EMAIL}" ]]; then
-    echo "${branch} ends in a commit by ${author}; it is left as it is" >&2
+# What the branch holds now: its commit, or nothing where there is no branch.
+listed=0
+listing="$(git ls-remote --exit-code --heads origin "refs/heads/${branch}")" || listed=$?
+case "${listed}" in
+  0)
+    remote="${listing%%[[:space:]]*}"
+    git fetch -q origin "${remote}"
+    made="$(git log -1 --format='%ae %ce' "${remote}")"
+    if [[ "${made}" != "${SYNC_GIT_EMAIL} ${SYNC_GIT_EMAIL}" ]]; then
+      echo "${branch} ends in a commit by ${made% *}, committed by ${made#* }; it is left as it is" >&2
+      exit 1
+    fi
+    ;;
+  2) remote='' ;;
+  *)
+    echo "origin's ${branch} could not be read (git ls-remote exit ${listed})" >&2
     exit 1
-  fi
-fi
+    ;;
+esac
 
 git switch -q -C "${branch}"
 node "${core}/sync.mjs" "${core}" .
 git add -A
 git -c user.name="${SYNC_GIT_NAME}" -c user.email="${SYNC_GIT_EMAIL}" \
   commit -q -m "chore: take the shared files from channel-volume-core ${head:0:7}"
-git push -q --force origin "${branch}"
+git push -q --force-with-lease="refs/heads/${branch}:${remote}" origin "HEAD:refs/heads/${branch}"
 
 body="channel-volume-core's main has moved from ${locked} to ${head}: https://github.com/semnil/channel-volume-core/compare/${locked}...${head}
 
