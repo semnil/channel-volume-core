@@ -1,7 +1,7 @@
 // common.test.cjs — core/common.js, what the extensions load ahead of their
 // own scripts: the settings key, the Target LUFS default and range, the gain
 // range, the runtime check, gain conversion and display (Auto's included), the
-// catalog lookup, and the HTML escape.
+// slider keys, the catalog lookup, and the HTML escape.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -81,6 +81,41 @@ test('formatAutoGain shows the stored Auto gain, and a dash where none is stored
     assert.equal(c.formatAutoGain(none, '%'), 'Auto (—)', `no gain to show: ${String(none)}`);
     assert.equal(c.formatAutoGain(none, 'dB'), 'Auto (—)');
   }
+});
+
+test('the slider keys are the eight that move a range input\'s value', () => {
+  const c = load();
+  const keys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'];
+  assert.deepEqual(vm.runInContext('[...SLIDER_VALUE_KEYS].join(",")', c), keys.join(','));
+  for (const key of keys) assert.equal(c.isSliderMoveKey(key), true, key);
+  for (const key of ['Tab', 'Shift', 'Enter', ' ', 'a', 'arrowleft', '', undefined]) {
+    assert.equal(c.isSliderMoveKey(key), false, String(key));
+  }
+});
+
+test('createSliderKeys begins a hold at the first value key down and ends it at the last let go of', () => {
+  const c = load();
+  const down = (key, repeat = false) => ({ key, repeat });
+  const keys = c.createSliderKeys();
+  assert.equal(keys.press(down('Tab')), false, 'another key takes no part');
+  assert.equal(keys.release(down('Tab')), false);
+  assert.equal(keys.press(down('ArrowRight', true)), false, 'a repeat begins nothing');
+  assert.equal(keys.release(down('ArrowRight')), false, 'nor did it count the key as down');
+  assert.equal(keys.press(down('ArrowRight')), true, 'the first value key down begins the hold');
+  assert.equal(keys.press(down('ArrowRight', true)), false);
+  assert.equal(keys.press(down('ArrowUp')), false, 'a second one joins it');
+  assert.equal(keys.release(down('ArrowRight')), false, 'the hold lasts while one is down');
+  assert.equal(keys.release(down('Home')), false, 'a key never down ends nothing');
+  assert.equal(keys.release(down('ArrowUp')), true, 'the last one let go of ends it');
+  assert.equal(keys.release(down('ArrowUp')), false);
+
+  assert.equal(keys.press(down('PageDown')), true);
+  keys.clear();
+  assert.equal(keys.release(down('PageDown')), false, 'clear lets every key go without ending a hold');
+  assert.equal(keys.press(down('End')), true, 'and the next value key down begins one');
+
+  const other = c.createSliderKeys();
+  assert.equal(other.press(down('End')), true, 'each tracker counts its own slider\'s keys');
 });
 
 test('msg answers the catalog\'s text, or the key where there is none to give', () => {
