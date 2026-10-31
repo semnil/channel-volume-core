@@ -295,7 +295,8 @@ test('where git keeps the executable bit in its index, a file in a conflict or o
       git(extension, 'switch', '-q', 'main');
       write(extension, 'pack.py', 'print("main")\n');
       commit('main');
-      spawnSync('git', ['-C', extension, 'merge', '-q', 'other'], { encoding: 'utf8' });
+      const merged = spawnSync('git', ['-C', extension, '-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'merge', '-q', 'other'], { encoding: 'utf8' });
+      assert.match(git(extension, 'status', '--porcelain=v2'), /^u UU .* pack\.py$/m, `the merge leaves pack.py in a conflict (${merged.stderr})`);
     } else {
       write(extension, 'pack.py', 'print("mine")\n');
       git(extension, 'add', '-N', 'pack.py');
