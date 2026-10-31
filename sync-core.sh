@@ -107,12 +107,15 @@ git push -q --force-with-lease="refs/heads/${branch}:${remote}" origin "HEAD:ref
 body="channel-volume-core's main has moved from ${locked} to ${head}: https://github.com/semnil/channel-volume-core/compare/${locked}...${head}
 
 This pull request copies the shared files as ${head} holds them and locks that commit in core.json."
+# The pull request is named by its number, or by the URL gh pr create prints,
+# never by the branch: gh resolves a branch to any open pull request from it,
+# whatever its base.
 open="$(open_pr)"
 if [[ -n "${open}" ]]; then
-  gh pr edit "${branch}" --body "${body}"
+  gh pr edit "${open}" --body "${body}"
 else
-  gh pr create --base "${default}" --head "${branch}" --title 'chore: take the shared files from channel-volume-core' --body "${body}"
+  open="$(gh pr create --base "${default}" --head "${branch}" --title 'chore: take the shared files from channel-volume-core' --body "${body}")"
 fi
 if [[ "${auto_merge}" == 'true' ]]; then
-  gh pr merge "${branch}" --auto --merge
+  gh pr merge "${open}" --auto --merge
 fi

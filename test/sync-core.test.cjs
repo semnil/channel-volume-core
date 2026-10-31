@@ -20,6 +20,8 @@ const SOMEONE = ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid'];
 // The run's own open pull request, and a fork's from a branch of the same name.
 const OURS = { number: 7, isCrossRepository: false };
 const FORKS = { number: 9, isCrossRepository: true };
+// The URL the fake gh pr create prints for the pull request it opens.
+const CREATED = 'https://github.com/semnil/extension/pull/8';
 const GIT = spawnSync('bash', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
 
 const git = (dir, ...args) => execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8' }).trim();
@@ -69,7 +71,8 @@ function fixture(t, { prs = [], autoMerge = 'true', listFails = false } = {}) {
     '  "pr list --head sync/channel-volume-core --base main --state open --json number,isCrossRepository --jq .[] | select(.isCrossRepository | not) | .number")',
     '    if [ -n "$GH_LIST_FAILS" ]; then exit 1; fi',
     '    printf \'%s\' "$GH_PRS" | jq -r "${@: -1}" ;;',
-    '  "pr create --base "*|"pr edit sync/channel-volume-core --body "*|"pr merge sync/channel-volume-core --auto --merge") ;;',
+    '  "pr create --base main --head sync/channel-volume-core "*) printf \'%s\\n\' "$GH_CREATED" ;;',
+    '  "pr edit 7 --body "*|"pr merge 7 --auto --merge"|"pr merge $GH_CREATED --auto --merge") ;;',
     '  "pr comment 7 --body "*|"pr close 7") ;;',
     '  *) printf \'gh: not a call the real gh takes here: %s\\n\' "$*" >&2; exit 1 ;;',
     'esac',
@@ -92,6 +95,7 @@ function fixture(t, { prs = [], autoMerge = 'true', listFails = false } = {}) {
         PATH: [...bin, path.join(box, 'bin'), process.env.PATH].join(path.delimiter),
         GH_LOG: log,
         GH_PRS: JSON.stringify(prs),
+        GH_CREATED: CREATED,
         GH_AUTO_MERGE: autoMerge,
         GH_LIST_FAILS: listFails ? '1' : '',
         SYNC_GIT_NAME: BOT.name,
@@ -262,7 +266,7 @@ test('sync-core.sh opens the pull request, and turns auto-merge on where the rep
   assert.equal(git(origin, 'rev-parse', 'main'), before, 'which is left as it was');
   const log = calls();
   assert.match(log, new RegExp(`^pr create --base main --head ${BRANCH} --title chore: take the shared files from channel-volume-core --body channel-volume-core's main has moved from ${locked} to ${head}: `, 'm'));
-  assert.match(log, new RegExp(`^pr merge ${BRANCH} --auto --merge$`, 'm'));
+  assert.match(log, new RegExp(`^pr merge ${CREATED} --auto --merge$`, 'm'), 'the pull request just opened, by its URL');
   assert.doesNotMatch(log, /^pr edit /m);
 });
 
@@ -273,9 +277,18 @@ test('sync-core.sh updates the open pull request, and leaves auto-merge off wher
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(pushed('core.json')).core.commit, head);
   const log = calls();
-  assert.match(log, new RegExp(`^pr edit ${BRANCH} --body channel-volume-core's main has moved from `, 'm'));
+  assert.match(log, new RegExp(`^pr edit 7 --body channel-volume-core's main has moved from `, 'm'));
   assert.doesNotMatch(log, /^pr create /m);
   assert.doesNotMatch(log, /^pr merge /m);
+});
+
+test('sync-core.sh updates the open pull request and turns auto-merge on for it by its number', (t) => {
+  const { moveCore, run, calls } = fixture(t, { prs: [OURS] });
+  moveCore('print("two")\n');
+  const result = run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(calls(), /^pr edit 7 --body /m);
+  assert.match(calls(), /^pr merge 7 --auto --merge$/m);
 });
 
 test('sync-core.sh stops before it pushes where the auto-merge setting cannot be read', (t) => {
