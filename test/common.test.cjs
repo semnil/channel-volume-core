@@ -5,9 +5,9 @@
 // gain for a level, the gain a write may store, the stored gain per type, a
 // row's name, label and Auto flags, the worker's write listener and a page's
 // request to it, the slider keys, the catalog lookup, the HTML escape, the
-// pages' wording and language, a page's reveal and first load, the gain as one text, the
-// popup's cards, the settings page's error line, and the
-// popup's asking again for the state.
+// pages' wording and language, a page's reveal and first load, the gain as one
+// text, the popup's cards, the settings page's error line and its sliders'
+// gestures, and the popup's asking again for the state.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -637,6 +637,125 @@ test('createSliderKeys begins a hold at the first value key down and ends it at 
 
   const other = c.createSliderKeys();
   assert.equal(other.press(down('End')), true, 'each tracker counts its own slider\'s keys');
+});
+
+// A settings slider and the window, each keeping its listeners, and the page
+// state holdSettingsSlider is handed.
+function settingsSlider({ stored = -18 } = {}) {
+  const on = (target) => (type, fn) => { (target.listeners[type] ||= []).push(fn); };
+  const slider = { value: String(stored), listeners: {} };
+  slider.addEventListener = on(slider);
+  const win = { listeners: {} };
+  win.addEventListener = on(win);
+  const page = { stored, label: '', saves: [] };
+  const c = load({ window: win });
+  const held = c.holdSettingsSlider(slider, {
+    current: () => page.stored,
+    drawLabel: (value) => { page.label = `${value}`; },
+    save: (value) => { page.saves.push(value); page.stored = value; }
+  });
+  const fire = (target, type, event = {}) => {
+    for (const fn of target.listeners[type] || []) fn({ target, button: 0, ...event });
+  };
+  const move = (value) => { slider.value = String(value); fire(slider, 'input'); };
+  return { slider, win, page, held, fire: (type, event) => fire(slider, type, event), blurWindow: () => fire(win, 'blur'), move };
+}
+
+test('holdSettingsSlider writes a key hold once, at the keyup of the last value key, where it moved the value', () => {
+  const s = settingsSlider();
+  s.fire('keydown', { key: 'ArrowRight' });
+  assert.equal(s.held(), true, 'a value key held is held');
+  s.move(-17); s.fire('change');
+  s.fire('keydown', { key: 'ArrowRight', repeat: true });
+  s.move(-16); s.fire('change');
+  assert.deepEqual([s.page.saves, s.page.label], [[], '-16'], 'the label follows and nothing is written while it is held');
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.fire('keyup', { key: 'ArrowRight' });
+  assert.deepEqual(s.page.saves, [-16], 'the key pressed again stays in the hold, and its keyup writes once');
+  assert.equal(s.held(), false);
+
+  s.fire('keydown', { key: 'Tab' });
+  assert.equal(s.held(), false, 'another key holds nothing');
+  s.fire('keydown', { key: 'ArrowLeft' });
+  s.fire('keyup', { key: 'ArrowLeft' });
+  assert.deepEqual([s.page.saves, s.slider.value, s.page.label], [[-16], '-16', '-16'], 'a hold that moved nothing writes nothing and draws the stored value');
+});
+
+test('holdSettingsSlider writes a drag at its change, and draws the stored value where it is let go where it began', () => {
+  const s = settingsSlider();
+  s.fire('pointerdown');
+  assert.equal(s.held(), true, 'a press of the primary button is held');
+  s.move(-20); s.move(-22);
+  assert.deepEqual(s.page.saves, [], 'the drag moves the label alone');
+  s.fire('change');
+  s.fire('pointerup');
+  assert.deepEqual([s.page.saves, s.held()], [[-22], false], 'its change writes once');
+
+  s.page.stored = -12;
+  s.fire('pointerdown');
+  s.move(-20); s.move(-22);
+  s.fire('pointerup');
+  assert.deepEqual([s.slider.value, s.page.label, s.page.saves], ['-12', '-12', [-22]],
+    'a drag let go of on the value it began on fires no change, and draws the stored value');
+
+  for (const button of [1, 2]) {
+    s.fire('pointerdown', { button });
+    assert.equal(s.held(), false, `a press with button ${button} holds nothing`);
+  }
+});
+
+test('holdSettingsSlider ends a gesture at a blur, writing a moved key hold, and takes nothing after it until the next press', () => {
+  for (const blur of ['slider', 'window']) {
+    const s = settingsSlider();
+    const blurNow = () => (blur === 'window' ? s.blurWindow() : s.fire('blur'));
+    s.fire('pointerdown');
+    s.move(-20);
+    s.fire('change');
+    blurNow();
+    assert.deepEqual([s.page.saves, s.held(), s.slider.value], [[-20], false, '-20'], `${blur}: the change ahead of the blur writes`);
+    s.move(-25);
+    assert.equal(s.page.label, '-20', `${blur}: an input after the blur moves no label`);
+    s.fire('change');
+    s.fire('pointerup');
+    assert.deepEqual([s.page.saves, s.slider.value, s.page.label], [[-20], '-20', '-20'],
+      `${blur}: what the drag does after the blur writes nothing and the thumb goes back`);
+    s.fire('pointerdown');
+    s.move(-21);
+    s.fire('change');
+    s.fire('pointerup');
+    assert.deepEqual(s.page.saves, [-20, -21], `${blur}: the next press writes again`);
+
+    s.fire('keydown', { key: 'ArrowRight' });
+    s.move(-19);
+    blurNow();
+    assert.deepEqual([s.page.saves, s.held()], [[-20, -21, -19], false], `${blur}: a key hold that moved is written at the blur`);
+    s.fire('keydown', { key: 'ArrowRight', repeat: true });
+    s.move(-18);
+    s.fire('change');
+    s.fire('keyup', { key: 'ArrowRight' });
+    assert.deepEqual(s.page.saves, [-20, -21, -19], `${blur}: and its repeats after the blur write nothing`);
+    s.fire('keydown', { key: 'ArrowRight' });
+    s.move(-18);
+    s.fire('keyup', { key: 'ArrowRight' });
+    assert.deepEqual(s.page.saves, [-20, -21, -19, -18], `${blur}: a new press writes again`);
+
+    s.blurWindow();
+    s.fire('blur');
+    assert.deepEqual(s.page.saves, [-20, -21, -19, -18], `${blur}: a blur with nothing held does nothing`);
+    s.move(-15);
+    assert.equal(s.page.label, '-15', `${blur}: and ends no gesture, so the slider goes on answering`);
+  }
+});
+
+test('holdSettingsSlider keeps a key hold through a press of the pointer, and writes what the key moved at its keyup', () => {
+  const s = settingsSlider();
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.move(-17);
+  s.fire('pointerdown');
+  s.fire('pointerup');
+  assert.equal(s.held(), true, 'the key is still held');
+  s.fire('keyup', { key: 'ArrowRight' });
+  assert.deepEqual(s.page.saves, [-17], 'and its keyup writes what it moved to');
 });
 
 test('msg answers the catalog\'s text, or the key where there is none to give', () => {
