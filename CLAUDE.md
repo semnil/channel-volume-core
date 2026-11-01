@@ -64,5 +64,6 @@ python3 -B -c "import ast,pathlib; [ast.parse(p.read_text()) for p in pathlib.Pa
 
 - **Override of the global CLAUDE.md's 「ドキュメント」 language rule**: `README.md` is English and `README.ja.md` is its Japanese counterpart; `CLAUDE.md` is English only
 - A change to a file under `shared/` comes with its tests under `test/` in the same pull request. It reaches the extensions only through `sync.mjs` after it is merged here: each extension's Sync Core workflow runs it daily and opens the pull request (README.md, "Changing a shared file"), or it is run by hand
+- The shared code is tested and swept here alone. The extensions' coverage report, made by the shared `ci.yaml`, leaves out `core/`, and their suites hold their own scripts, run with `core/common.js` loaded as it ships; so `test/common.test.cjs` has to kill every mutant of `shared/core/common.js` by itself, bar those `equivalents.md` names
 - This repository is public: its text names only the public extensions
 - Commit messages follow Conventional Commits
