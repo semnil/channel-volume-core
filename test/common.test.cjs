@@ -7,7 +7,8 @@
 // request to it, the slider keys, the catalog lookup, the HTML escape, the
 // pages' wording and language, a page's reveal and first load, the gain as one
 // text, the popup's cards, the settings page's error line and its sliders'
-// gestures, and the popup's asking again for the state.
+// gestures, the popup's asking again for the state, its owner line, whether
+// its tab is on the site, its status line and its display unit.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -948,6 +949,76 @@ test('drawOwnerName shows the owner\'s name, or the catalog\'s text where there 
     assert.deepEqual([el.textContent, el.title, classes.has('empty')], ['Not detected', 'Not detected', true], `${name}`);
   }
   assert.ok(classes.has('uploader-name'), 'the element keeps its other classes');
+});
+
+test('isSiteTab reads the host name of the tab\'s URL: the host and its subdomains, and nothing else', () => {
+  const c = load({ URL });
+  const on = (url) => c.isSiteTab({ url }, 'youtube.com');
+  assert.deepEqual(
+    ['https://www.youtube.com/watch?v=x', 'https://youtube.com/', 'https://m.youtube.com/'].map(on),
+    [true, true, true]);
+  assert.deepEqual(
+    ['https://example.com/?next=youtube.com', 'https://notyoutube.com/', 'https://youtube.com.example.com/', 'chrome://newtab/', ''].map(on),
+    [false, false, false, false, false]);
+  assert.equal(c.isSiteTab({}, 'youtube.com'), false, 'a tab whose URL the popup cannot read');
+  assert.equal(c.isSiteTab(undefined, 'youtube.com'), false, 'no tab');
+});
+
+test('showPopupStatus puts the catalog\'s text in the status line in place of the screen, and hidePopupStatus puts the screen back', () => {
+  const element = () => {
+    const classes = new Set();
+    return { textContent: '', classes, classList: { add: (n) => classes.add(n), remove: (n) => classes.delete(n) } };
+  };
+  const line = element();
+  const main = element();
+  line.classes.add('hidden');
+  const c = load({ chrome: { i18n: { getMessage: (key) => (key === 'reloadPageNeeded' ? 'Reload the page' : '') } } });
+  c.showPopupStatus(line, main, 'reloadPageNeeded');
+  assert.deepEqual([line.textContent, line.classes.has('hidden'), main.classes.has('hidden')], ['Reload the page', false, true]);
+  c.hidePopupStatus(line, main);
+  assert.deepEqual([line.classes.has('hidden'), main.classes.has('hidden')], [true, false]);
+});
+
+test('followDisplayUnit reads the unit, follows changes in sync, and lets a change made during the read stand', async () => {
+  const listeners = [];
+  let stored = { displayUnit: 'dB' };
+  let release = null;
+  let hold = false;
+  const storage = {
+    onChanged: { addListener: (fn) => listeners.push(fn) },
+    sync: { get: async (key) => {
+      if (hold) await new Promise((resolve) => { release = resolve; });
+      return { [key]: stored };
+    } },
+    local: { get: async () => ({}) }
+  };
+  const c = load({});
+  const seen = [];
+  const read = c.followDisplayUnit((unit) => seen.push(unit), storage);
+  assert.equal(await read(), 'dB');
+  stored = {};
+  assert.equal(await read(), '%', 'no unit stored is %');
+
+  const fire = (changes, area) => listeners.forEach((fn) => fn(changes, area));
+  fire({ autoLoudnessSettings: { newValue: { displayUnit: 'dB' } } }, 'sync');
+  fire({ autoLoudnessSettings: { newValue: undefined } }, 'sync');
+  fire({ autoLoudnessSettings: { newValue: { displayUnit: 'dB' } } }, 'local');
+  fire({ otherKey: { newValue: { displayUnit: 'dB' } } }, 'sync');
+  assert.deepEqual(seen, ['dB', '%'], 'a change in sync to the settings key, and nothing else');
+
+  hold = true;
+  stored = { displayUnit: '%' };
+  const pending = read();
+  for (let turn = 0; turn < 5 && !release; turn++) await Promise.resolve();
+  fire({ autoLoudnessSettings: { newValue: { displayUnit: 'dB' } } }, 'sync');
+  release();
+  assert.equal(await pending, null, 'a read a change came during gives way to it');
+  assert.deepEqual(seen, ['dB', '%', 'dB']);
+
+  hold = false;
+  const failing = { onChanged: { addListener() {} }, sync: { get: async () => { throw new Error('read failed'); } }, local: { get: async () => ({}) } };
+  await assert.rejects(c.followDisplayUnit(() => {}, failing)(), /read failed/, 'a read that fails rejects');
+  assert.equal(await c.followDisplayUnit(() => {}, { sync: storage.sync, local: storage.local })(), '%', 'a storage with no change events still reads');
 });
 
 test('showSettingsError shows #settingsError with the catalog\'s text for a key, and hides it', () => {
