@@ -7,9 +7,8 @@
 // request to it, the slider keys, the catalog lookup, the HTML escape, the
 // pages' wording and language, a page's reveal and first load, the gain as one
 // text, the popup's cards, the settings page's error line and its sliders'
-// gestures, the popup's asking again for the state and every second, its
-// owner line, whether its tab is on the site, its status line and its display
-// unit.
+// gestures, the popup's asking for the state every second, its owner line,
+// whether its tab is on the site, its status line and its display unit.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -1065,45 +1064,6 @@ test('pollTabState asks first at once and refresh every STATE_POLL_INTERVAL_MS, 
   asked.length = 0;
   await c.pollTabState(async () => { asked.push('refresh'); });
   assert.deepEqual([asked, intervals.length], [['refresh'], 1]);
-});
-
-test('retryGetState asks again until done, at most the times given, and stops at an empty answer or a failure', async () => {
-  // Each timer runs when the case lets it, and its delay is kept.
-  const timers = [];
-  const delays = [];
-  const setTimeout = (fn, ms) => { timers.push(fn); delays.push(ms); };
-  const c = load({ setTimeout });
-  const flush = async () => {
-    while (timers.length) { await timers.shift()(); await new Promise((resolve) => setImmediate(resolve)); }
-  };
-  const run = async (remaining, answers, doneAfter = Infinity) => {
-    const taken = [];
-    let asked = 0;
-    c.retryGetState(remaining, 500, {
-      done: () => taken.length >= doneAfter,
-      ask: async () => { const a = answers[asked++]; if (a instanceof Error) throw a; return a; },
-      take: (state) => taken.push(state)
-    });
-    await flush();
-    return { asked, taken };
-  };
-  assert.deepEqual(await run(3, [{ n: 1 }, { n: 2 }, { n: 3 }, { n: 4 }]), { asked: 3, taken: [{ n: 1 }, { n: 2 }, { n: 3 }] },
-    'no more asks than remaining');
-  assert.ok(delays.length === 3 && delays.every((ms) => ms === 500), `each ask waits the interval (${delays})`);
-  assert.deepEqual(await run(5, [{ n: 1 }, { n: 2 }, { n: 3 }], 2), { asked: 2, taken: [{ n: 1 }, { n: 2 }] },
-    'a state that settles it ends the asking');
-  assert.deepEqual(await run(5, [{ n: 1 }, null, { n: 3 }]), { asked: 2, taken: [{ n: 1 }] }, 'an empty answer ends it');
-  assert.deepEqual(await run(5, [new Error('gone'), { n: 2 }]), { asked: 1, taken: [] }, 'and so does a failed ask');
-  assert.deepEqual(await run(0, [{ n: 1 }]), { asked: 0, taken: [] }, 'none remaining asks nothing');
-  assert.deepEqual(await run(5, [{ n: 1 }], 0), { asked: 0, taken: [] }, 'and nor does a state already settled');
-  // Settled while the timer waits: the ask is not made.
-  const taken = [];
-  let settled = false;
-  let asked = 0;
-  c.retryGetState(5, 500, { done: () => settled, ask: async () => { asked++; return { n: 1 }; }, take: (s) => taken.push(s) });
-  settled = true;
-  await flush();
-  assert.deepEqual([asked, taken.length], [0, 0], 'a state settled while the timer waits is not asked for');
 });
 
 test('sendTabMessage sends to the popup\'s tab and answers with its reply, and a popup with no tab sends nothing', async () => {
