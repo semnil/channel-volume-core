@@ -459,9 +459,10 @@ function holdPopupSlider(slider, { begin, draw, canPreview, preview, save }) {
   let inGesture = false;
   let gestureEnded = false;
   let valueAtEnd = '';
-  // An input since the gesture's last save, and the value it saved.
+  // An input since the gesture's last save, and a save made while the pointer
+  // was held that no input has followed.
   let unsaved = false;
-  let savedValue = null;
+  let savedHeld = false;
   let previewUnsaved = false;
   let keepAliveSet = false;
   const value = () => Number(slider.value);
@@ -469,6 +470,7 @@ function holdPopupSlider(slider, { begin, draw, canPreview, preview, save }) {
     inGesture = true;
     gestureEnded = false;
     unsaved = false;
+    savedHeld = false;
     begin();
   };
   // A press of the pointer still held goes on as the same gesture, from the
@@ -476,7 +478,7 @@ function holdPopupSlider(slider, { begin, draw, canPreview, preview, save }) {
   const saveValue = () => {
     unsaved = false;
     previewUnsaved = false;
-    savedValue = slider.value;
+    savedHeld = pointerHeld;
     if (pointerHeld) pointerStart = slider.value;
     else inGesture = false;
     save(value());
@@ -546,6 +548,7 @@ function holdPopupSlider(slider, { begin, draw, canPreview, preview, save }) {
     if (!inGesture) beginGesture();
     if (keyHeld) keyMoved = true;
     unsaved = true;
+    savedHeld = false;
     draw(value());
     if (!canPreview()) return;
     preview(value());
@@ -558,7 +561,12 @@ function holdPopupSlider(slider, { begin, draw, canPreview, preview, save }) {
       return;
     }
     if (keyHeld) return;
-    if (!unsaved && slider.value === savedValue) return;
+    // The release after a save with no input since moves nothing of its own,
+    // whatever was drawn on the slider meanwhile.
+    if (savedHeld && !unsaved) {
+      savedHeld = false;
+      return;
+    }
     if (!inGesture) beginGesture();
     saveValue();
   });
