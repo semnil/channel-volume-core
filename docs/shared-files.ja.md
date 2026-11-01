@@ -14,7 +14,7 @@
 
 - `SETTINGS_KEY`・`DEFAULT_TARGET_LUFS`・`MIN_TARGET_LUFS` / `MAX_TARGET_LUFS` (-30, -6): 設定オブジェクトを置くキー、Target LUFS の既定値とその範囲。
 - `readSettings`・`isStoredSettingsObject`: sync の設定オブジェクト。sync に無い間は local の写し。local も空で返ったときは、sync をもう一度読む。2 回の読み取りの間に移し替えが入りうる (sync を空と読んだ後、移し替えが sync に書いて local を消す) ので、その読み取りで移し替えが sync に置いたものが見つかる。どちらにも設定オブジェクト (null でも配列でもないオブジェクト) が無ければ `{}`。
-- `moveSettingsToSync`: 以前の版が local に置いた設定を sync へ移す。sync にすでに設定があれば (Chrome の同期がオンで、同じユーザーでサインインした別の Chrome が先に移した)、それを残して local の写しを消す。sync に書いてから local を消すので、読む側はいつでもどちらかで見つける。sync が書き込みを断ったときは local をそのまま残し、次に任せる。書く前に sync を読むので、その間に届いた設定の保存は local の写しで上書きされる (設定を保存する呼び出し側は、保存と移し替えを 1 つの列で走らせる)。2 つの移し替えが同時に走っても同じ値を書く。local の設定のうち何を書くかは呼び出し側の `keep` が決める。local に何かあったかどうかを答え、何も無ければ移し替えは 1 回の読み取りで終わる。
+- `moveSettingsToSync`: 以前の版が local に置いた設定を sync へ移す。sync にすでに設定があれば (Chrome の同期がオンで、同じユーザーでサインインした別の Chrome が先に移した)、それを残して local の写しを消す。sync に書いてから local を消すので、読む側はいつでもどちらかで見つける。sync が書き込みを断ったときは local をそのまま残し、次に任せる。書く前に sync を読むので、その間に届いた設定の保存は local の写しで上書きされる (設定を保存する呼び出し側は、保存と移し替えを 1 つの列で走らせる)。同じ local の写しを読み、`keep` から同じものを受け取る 2 つの移し替えは、同時に走っても同じ値を書く。local の設定のうち何を書くかは呼び出し側の `keep` が決める。local に何かあったかどうかを答え、何も無ければ移し替えは 1 回の読み取りで終わる。
 - `createSerialQueue`: 処理を 1 つずつ順に走らせる。失敗しても次へ進み、それぞれが終わった時点で答える。
 - `writeSettingsChange`・`sameStoredSettings`・`settingCheck`: 読んだ設定への変更を sync へ書く。読んだ値と sync がすでにそれを持っていれば書かない。表に載った項目の検査を返し、載っていない名前には何も返さない。
 
