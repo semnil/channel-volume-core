@@ -39,13 +39,14 @@ const DOCUMENT = {
   })
 };
 
-test('the settings key, the Target LUFS default and range, the gain overlay default and the gain range are the extensions\' values', () => {
+test('the settings key, the Target LUFS default and range, the gain overlay and Auto defaults and the gain range are the extensions\' values', () => {
   const c = load();
   assert.equal(vm.runInContext('SETTINGS_KEY', c), 'autoLoudnessSettings');
   assert.equal(vm.runInContext('DEFAULT_TARGET_LUFS', c), -18);
   assert.equal(vm.runInContext('MIN_TARGET_LUFS', c), -30);
   assert.equal(vm.runInContext('MAX_TARGET_LUFS', c), -6);
   assert.equal(vm.runInContext('DEFAULT_SHOW_GAIN_OVERLAY', c), true);
+  assert.equal(vm.runInContext('DEFAULT_AUTO_APPLY_LOUDNESS', c), false);
   assert.equal(vm.runInContext('MIN_GAIN', c), 0);
   assert.equal(vm.runInContext('MAX_GAIN', c), 6);
 });
@@ -461,6 +462,41 @@ test('isContextValid answers whether the runtime can still be reached', () => {
   assert.equal(load({ chrome: throwing }).isContextValid(), false, 'a runtime that throws when asked for');
 });
 
+test('isMediaPlaying answers whether media is neither paused nor muted', () => {
+  const c = load();
+  assert.equal(c.isMediaPlaying({ paused: false, muted: false, volume: 0 }), true, 'a volume of 0 still plays');
+  assert.equal(c.isMediaPlaying({ paused: true, muted: false }), false);
+  assert.equal(c.isMediaPlaying({ paused: false, muted: true }), false);
+  assert.equal(c.isMediaPlaying(null), false, 'no media');
+});
+
+test('createUnaskedWriteReporter names a stretch of failures once at info and once at error, and a landed write ends it', async () => {
+  const logged = [];
+  let valid = true;
+  const c = load({
+    chrome: { get runtime() { return valid ? { id: 'abc' } : {}; } },
+    console: { info: (...a) => logged.push(['info', ...a]), error: (...a) => logged.push(['error', ...a]) }
+  });
+  const report = c.createUnaskedWriteReporter('[X]');
+  const fail = () => Promise.reject(new Error('quota'));
+  await report('auto gain not stored', fail());
+  await report('auto gain not stored', fail());
+  await report('auto gain not stored', fail());
+  assert.deepEqual(logged.map(([level, text]) => [level, text]), [['info', '[X] auto gain not stored'], ['error', '[X] auto gain not stored']],
+    'the start at info, the next failure at error, and nothing after');
+  await report('other write', fail());
+  assert.deepEqual(logged.at(-1).slice(0, 2), ['info', '[X] other write'], 'each name keeps a stretch of its own');
+  await report('auto gain not stored', Promise.resolve());
+  await report('auto gain not stored', fail());
+  assert.deepEqual(logged.at(-1).slice(0, 2), ['info', '[X] auto gain not stored'], 'a write that lands ends the stretch');
+  valid = false;
+  const before = logged.length;
+  await report('auto gain not stored', fail());
+  await report('auto gain not stored', fail());
+  assert.equal(logged.length, before, 'nothing is logged where the runtime cannot be reached');
+  await assert.doesNotReject(report('x', fail()), 'the failure goes no further');
+});
+
 test('gains turn into percent and dB, and percent back into a gain', () => {
   const c = load();
   assert.equal(c.gainToPercent(1), 100);
@@ -581,6 +617,37 @@ test('expandLegacyAutoFlag gives each type with no flag of its own the earlier f
   assert.equal(expand({ autoApplyLoudnessLive: true }), '{"autoApplyLoudnessLive":true}', 'an entry without it is left as it is');
   const entry = { autoApplyLoudness: false };
   assert.equal(c.expandLegacyAutoFlag(entry, FIELDS), entry, 'in place');
+});
+
+test('setAutoFlag sets a type\'s flag, true or false, after turning the earlier flag into one per type', () => {
+  const c = load();
+  const fields = ['autoApplyLoudnessLive', 'autoApplyLoudnessVideo'];
+  const legacy = { autoApplyLoudness: true, gainVideo: 0.5 };
+  assert.equal(c.setAutoFlag(legacy, 'autoApplyLoudnessVideo', fields, false), legacy, 'it answers the row it set');
+  assert.deepEqual(legacy, { gainVideo: 0.5, autoApplyLoudnessLive: true, autoApplyLoudnessVideo: false },
+    'the other type keeps the earlier flag, this one takes its own');
+  const row = {};
+  c.setAutoFlag(row, 'autoApplyLoudnessLive', fields, 1);
+  assert.deepEqual(row, { autoApplyLoudnessLive: true }, 'a flag is stored as a boolean, and only for the type set');
+});
+
+test('hasAutoFlag answers whether a row names an Auto choice for a type, its own or the earlier one', () => {
+  const c = load();
+  assert.equal(c.hasAutoFlag({ autoApplyLoudnessVideo: false }, 'autoApplyLoudnessVideo'), true, 'a choice of off is a choice');
+  assert.equal(c.hasAutoFlag({ autoApplyLoudness: true }, 'autoApplyLoudnessLive'), true, 'the earlier flag is one for every type');
+  assert.equal(c.hasAutoFlag({ autoApplyLoudnessLive: true }, 'autoApplyLoudnessVideo'), false, 'another type\'s flag is not');
+  assert.equal(c.hasAutoFlag({ gainVideo: 0.5 }, 'autoApplyLoudnessVideo'), false, 'a gain is not');
+  assert.equal(c.hasAutoFlag(Object.create({ autoApplyLoudnessVideo: true }), 'autoApplyLoudnessVideo'), false, 'an inherited flag is not');
+  assert.equal(c.hasAutoFlag(null, 'autoApplyLoudnessVideo'), false);
+  assert.equal(c.hasAutoFlag('row', 'length'), false, 'nor is a row that is not an object');
+});
+
+test('isManualGainLocked holds the manual controls only while Auto is on and its level is known', () => {
+  const c = load();
+  assert.equal(c.isManualGainLocked(true, true), true);
+  assert.equal(c.isManualGainLocked(true, false), false);
+  assert.equal(c.isManualGainLocked(false, true), false);
+  assert.equal(c.isManualGainLocked(1, 'level'), true, 'any truthy pair');
 });
 
 test('autoFlagFor reads the type\'s flag, then the earlier one, then the stored-gain rule, then the default', () => {

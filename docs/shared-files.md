@@ -12,7 +12,7 @@ A classic script each extension loads ahead of its own scripts, wherever its `ut
 <a id="settings"></a>
 ### Settings
 
-- `SETTINGS_KEY`, `DEFAULT_TARGET_LUFS`, `MIN_TARGET_LUFS` / `MAX_TARGET_LUFS` (-30, -6), `DEFAULT_SHOW_GAIN_OVERLAY` (true): the key the settings object is kept under, the Target LUFS default and its range, and whether the gain is shown beside the player's volume where the settings hold no choice.
+- `SETTINGS_KEY`, `DEFAULT_TARGET_LUFS`, `MIN_TARGET_LUFS` / `MAX_TARGET_LUFS` (-30, -6), `DEFAULT_SHOW_GAIN_OVERLAY` (true), `DEFAULT_AUTO_APPLY_LOUDNESS` (false): the key the settings object is kept under, the Target LUFS default and its range, whether the gain is shown beside the player's volume where the settings hold no choice, and whether Auto is on for a type where neither the owner's row nor the settings name a choice.
 - `readSettings`, `isStoredSettingsObject`: the settings object in sync, or the copy in local while sync holds none. Where local comes back empty too, sync is read once more: the two reads can straddle a move (sync read empty, then the move writes sync and clears local), and that read finds what the move put in sync. `{}` where neither area holds a settings object (an object, neither null nor an array).
 - `moveSettingsToSync`: settings an earlier version kept in local, moved to sync. Where sync already holds settings — another Chrome the user is signed in to moved first, with Chrome sync on — those stay and the local copy goes. Sync is written before local is removed, so a reader always finds one of the two, and a move sync refuses leaves local as it was for the next try. It reads sync before it writes it, so a settings save landing between the two is overwritten with local's copy (a caller that saves settings runs its saves and the move on one queue); two moves at once that read the same copy in local, and get the same from `keep`, write the same value. The caller's `keep` gives what of local's settings is written. It answers whether local held anything; where it holds nothing, the move is one read.
 - `createSerialQueue`: work run one after the other, past a failure, each answered as it settles.
@@ -26,6 +26,7 @@ A classic script each extension loads ahead of its own scripts, wherever its `ut
 - `storedGain`, `expandLegacyGain`, `hasTypedGain`: a row's gain per type; an earlier single gain is read, and copied on a write, only where no typed field is a key, and only where it is a finite number.
 - `applyEntryName`: names a row from the name a write carries. A name that is no text, is empty, or is the id itself (a sender gives the id before it knows the name) leaves the row's name as it is; a row with no name takes the id where `nameNewRow` (true unless the caller says otherwise) says so.
 - `expandLegacyAutoFlag`, `autoFlagFor`: an earlier all-types Auto flag fills only the types without a flag of their own; a type's Auto state is its own flag, then the earlier one, then off where the caller's `storedGainTurnsOff` holds (its rule that a gain stored without a flag is a choice of its own), then the default.
+- `setAutoFlag`, `hasAutoFlag`: sets a type's Auto flag, true or false, after turning the earlier flag into one per type of the caller's fields; whether a row names an Auto choice for a type — its own flag, or the earlier one (own properties alone).
 - `isRowKey`, `rowLabel`: the key a delete may name (non-empty text); what a row is shown and sorted under (its name where that is non-empty text, its key otherwise).
 
 <a id="writes"></a>
@@ -39,6 +40,9 @@ A classic script each extension loads ahead of its own scripts, wherever its `ut
 ### Gain
 
 - `isContextValid`: whether the extension's runtime can still be reached.
+- `isMediaPlaying`: whether media is neither paused nor muted; a volume or a gain of 0 still counts as playing.
+- `isManualGainLocked`: whether Auto holds the gain, so the manual controls take nothing: Auto is on and the level it follows is known.
+- `createUnaskedWriteReporter`: a reporter of the writes a page makes that no gesture asked for, each made again by the next one of its kind. Each name keeps a stretch of its own: the first failure is logged at info, the next at error and then nothing more, and a write of that name that lands ends the stretch; nothing is logged where the runtime can no longer be reached.
 - `gainToPercent`, `percentToGain`, `gainToDb`, `formatGain`, `formatGainText`, `formatAutoGain`: a gain as a percent or in dB and back, as a number and a unit in the display unit, as one text, and as Auto shows it (`Auto (—)` where no gain is stored).
 - `gainForLevel`: the gain that takes a level to the target, `10^((target - level) / 20)` within the gain range, and 1 where that is not finite.
 - `AUTO_FOLLOW_INTERVAL_MS` (1000 ms): how often, at most, Auto sets the gain from a level that moves while it plays.

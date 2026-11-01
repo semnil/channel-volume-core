@@ -12,7 +12,7 @@
 <a id="settings"></a>
 ### 設定
 
-- `SETTINGS_KEY`・`DEFAULT_TARGET_LUFS`・`MIN_TARGET_LUFS` / `MAX_TARGET_LUFS` (-30, -6)・`DEFAULT_SHOW_GAIN_OVERLAY` (true): 設定オブジェクトを置くキー、Target LUFS の既定値とその範囲、設定に選択が無いときにプレーヤーの音量のそばへゲインを表示するかどうか。
+- `SETTINGS_KEY`・`DEFAULT_TARGET_LUFS`・`MIN_TARGET_LUFS` / `MAX_TARGET_LUFS` (-30, -6)・`DEFAULT_SHOW_GAIN_OVERLAY` (true)・`DEFAULT_AUTO_APPLY_LOUDNESS` (false): 設定オブジェクトを置くキー、Target LUFS の既定値とその範囲、設定に選択が無いときにプレーヤーの音量のそばへゲインを表示するかどうか、持ち主の行にも設定にも選択が無い種類で Auto をオンにするかどうか。
 - `readSettings`・`isStoredSettingsObject`: sync の設定オブジェクト。sync に無い間は local の写し。local も空で返ったときは、sync をもう一度読む。2 回の読み取りの間に移し替えが入りうる (sync を空と読んだ後、移し替えが sync に書いて local を消す) ので、その読み取りで移し替えが sync に置いたものが見つかる。どちらにも設定オブジェクト (null でも配列でもないオブジェクト) が無ければ `{}`。
 - `moveSettingsToSync`: 以前の版が local に置いた設定を sync へ移す。sync にすでに設定があれば (Chrome の同期がオンで、同じユーザーでサインインした別の Chrome が先に移した)、それを残して local の写しを消す。sync に書いてから local を消すので、読む側はいつでもどちらかで見つける。sync が書き込みを断ったときは local をそのまま残し、次に任せる。書く前に sync を読むので、その間に届いた設定の保存は local の写しで上書きされる (設定を保存する呼び出し側は、保存と移し替えを 1 つの列で走らせる)。同じ local の写しを読み、`keep` から同じものを受け取る 2 つの移し替えは、同時に走っても同じ値を書く。local の設定のうち何を書くかは呼び出し側の `keep` が決める。local に何かあったかどうかを答え、何も無ければ移し替えは 1 回の読み取りで終わる。
 - `createSerialQueue`: 処理を 1 つずつ順に走らせる。失敗しても次へ進み、それぞれが終わった時点で答える。
@@ -26,6 +26,7 @@
 - `storedGain`・`expandLegacyGain`・`hasTypedGain`: 行の種類ごとのゲイン。以前の単一のゲインは、種類ごとの項目がどれもキーに無いときだけ、有限の数であるときだけ読み、書き込みのときに写す。
 - `applyEntryName`: 書き込みが運んできた名前で行に名前を付ける。文字列でない名前、空の名前、id そのもの (送り手は名前を知る前に id を送る) は、行の名前を変えない。名前の無い行は、`nameNewRow` (呼び出し側が指定しなければ true) が求めれば id を名前にする。
 - `expandLegacyAutoFlag`・`autoFlagFor`: 以前の全種類共通の Auto のフラグは、自分のフラグを持たない種類だけを埋める。種類の Auto の状態は、自分のフラグ、以前のフラグ、呼び出し側の `storedGainTurnsOff` が通すとき (フラグの無い保存ゲインをそれだけで選択とみなす規則) はオフ、既定値の順に決まる。
+- `setAutoFlag`・`hasAutoFlag`: 以前のフラグを呼び出し側の項目の種類ごとのフラグに展開してから、種類の Auto のフラグを true か false で書く。行がその種類の Auto の選択を持っているか (自分のフラグか以前のフラグ。自分のプロパティだけを見る)。
 - `isRowKey`・`rowLabel`: 削除が指してよいキー (空でない文字列)。行を表示し並べる名前 (空でない文字列の名前があればそれ、無ければキー)。
 
 <a id="writes"></a>
@@ -39,6 +40,9 @@
 ### ゲイン
 
 - `isContextValid`: 拡張の実行環境にまだ届くかどうか。
+- `isMediaPlaying`: メディアが一時停止もミュートもしていないかどうか。音量 0 やゲイン 0 は再生中とみなす。
+- `isManualGainLocked`: Auto がゲインを持っていて手動の操作部品が何も受けないかどうか。Auto がオンで、追う値が分かっているとき。
+- `createUnaskedWriteReporter`: 操作で頼まれずにページが行う書き込み (次の同じ種類の書き込みがやり直す) の失敗の記録係。名前ごとに一続きを持ち、最初の失敗は info、次の失敗は error で記録し、それ以降は記録しない。その名前の書き込みが済むと一続きは終わる。実行環境に届かないときは記録しない。
 - `gainToPercent`・`percentToGain`・`gainToDb`・`formatGain`・`formatGainText`・`formatAutoGain`: ゲインを % や dB にしたり戻したりする。表示単位での数と単位、1 つの文字列、Auto での見せ方 (保存ゲインが無ければ `Auto (—)`)。
 - `gainForLevel`: レベルを目標へ合わせるゲイン。`10^((目標 - レベル) / 20)` をゲインの範囲に収め、有限でなければ 1。
 - `AUTO_FOLLOW_INTERVAL_MS` (1000 ms): 再生中に動くレベルから Auto がゲインを決め直す最短の間隔。
