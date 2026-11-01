@@ -6,9 +6,10 @@
 // row's name, label and Auto flags, the worker's write listener and a page's
 // request to it, the slider keys, the catalog lookup, the HTML escape, the
 // pages' wording and language, a page's reveal and first load, the gain as one
-// text, the popup's cards, the settings page's error line and its sliders'
-// gestures, the popup's asking for the state every second, its owner line,
-// whether its tab is on the site, its status line and its display unit.
+// text, the popup's cards, the settings page's error line, its save of a
+// setting and its sliders' gestures, the popup's asking for the state every
+// second, its owner line, whether its tab is on the site, its status line and
+// its display unit.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -1034,6 +1035,55 @@ test('showSettingsError shows #settingsError with the catalog\'s text for a key,
   assert.deepEqual([line.textContent, line.hidden], ['Not loaded', false]);
   c.showSettingsError(false, 'settingsSaveFailed');
   assert.deepEqual([line.textContent, line.hidden], ['Not loaded', true], 'hiding leaves the text');
+});
+
+test('saveSettingOrRestore writes once loaded, takes the line down where the save lands, and goes back to what the settings hold where it does not', async () => {
+  const line = { textContent: '', hidden: true };
+  line.classList = { toggle: (name, force) => { line.hidden = force; } };
+  const errors = [];
+  const c = load({
+    document: { getElementById: () => line },
+    console: { error: (...args) => errors.push(args.map(String).join(' ')) },
+    chrome: { i18n: { getMessage: (key) => key } }
+  });
+  let loaded = false;
+  let revision = 0;
+  const drawn = [];
+  const redrawn = [];
+  let writes = 0;
+  const options = (read) => ({
+    loaded: () => loaded, read, apply: (s) => drawn.push(s), revision: () => revision,
+    redraw: () => redrawn.push(true), prefix: '[T]'
+  });
+  const write = (fails) => async () => { writes++; if (fails) throw new Error('refused'); };
+
+  assert.equal(await c.saveSettingOrRestore(write(false), options(async () => ({}))), false, 'a page that has not loaded writes nothing');
+  assert.equal(writes, 0);
+
+  loaded = true;
+  line.hidden = false;
+  assert.equal(await c.saveSettingOrRestore(write(false), options(async () => ({}))), true);
+  assert.deepEqual([writes, line.hidden, drawn.length, redrawn.length], [1, true, 0, 0], 'a save that lands takes the line down and draws nothing');
+
+  assert.equal(await c.saveSettingOrRestore(write(true), options(async () => ({ targetLufs: -20 }))), false);
+  assert.deepEqual([drawn, redrawn.length, line.textContent, line.hidden], [[{ targetLufs: -20 }], 1, 'settingsSaveFailed', false],
+    'a save that does not land draws what the settings hold and says it was not saved');
+  assert.ok(errors.at(-1).startsWith('[T] setting not saved'), errors.at(-1));
+
+  // A settings change that comes while the read is out stands over it.
+  drawn.length = 0;
+  redrawn.length = 0;
+  await c.saveSettingOrRestore(write(true), options(async () => { revision++; return { targetLufs: -24 }; }));
+  assert.deepEqual([drawn.length, redrawn.length, line.textContent], [0, 1, 'settingsSaveFailed'], 'a read a change came during is not drawn');
+
+  // A read that fails as well asks for a reload, and draws nothing.
+  await c.saveSettingOrRestore(write(true), options(async () => { throw new Error('unread'); }));
+  assert.deepEqual([drawn.length, redrawn.length, line.textContent], [0, 1, 'settingsLoadFailed']);
+  assert.ok(errors.some((e) => e.startsWith('[T] settings not read back after a failed save')), errors.join(' | '));
+
+  // With no redraw given, a failed save draws the settings alone.
+  await c.saveSettingOrRestore(write(true), { loaded: () => true, read: async () => ({ x: 1 }), apply: (s) => drawn.push(s), revision: () => revision });
+  assert.deepEqual(drawn, [{ x: 1 }]);
 });
 
 test('pollTabState asks first at once and refresh every STATE_POLL_INTERVAL_MS, and resolves once the first is answered', async () => {
