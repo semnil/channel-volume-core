@@ -165,7 +165,10 @@ test('moveSettingsToSync clears local only once sync is written, and answers a f
   const set = slow.storage.sync.set;
   slow.storage.sync.set = (items) => new Promise((resolve) => { land = () => resolve(set(items)); asked(); });
   const moving = c.moveSettingsToSync(slow.storage);
-  await reached;
+  // A move that settles without writing sync is a failure of its own, not a
+  // wait for a write that never comes.
+  const first = await Promise.race([reached.then(() => 'set'), moving.then(() => 'settled', () => 'settled')]);
+  assert.equal(first, 'set', 'the move writes sync');
   for (let i = 0; i < 10; i++) await Promise.resolve();
   assert.deepEqual(slow.calls, ['local.get', 'sync.get'], 'local is not cleared while the sync write is out');
   land();
@@ -1012,11 +1015,13 @@ test('followDisplayUnit reads the unit, follows changes in sync, and lets a chan
   const pending = read();
   for (let turn = 0; turn < 5 && !release; turn++) await Promise.resolve();
   fire({ autoLoudnessSettings: { newValue: { displayUnit: 'dB' } } }, 'sync');
+  // Every read after the one held goes through, so a read that asks sync more
+  // than once is answered rather than left waiting.
+  hold = false;
   release();
   assert.equal(await pending, null, 'a read a change came during gives way to it');
   assert.deepEqual(seen, ['dB', '%', 'dB']);
 
-  hold = false;
   const failing = { onChanged: { addListener() {} }, sync: { get: async () => { throw new Error('read failed'); } }, local: { get: async () => ({}) } };
   await assert.rejects(c.followDisplayUnit(() => {}, failing)(), /read failed/, 'a read that fails rejects');
   assert.equal(await c.followDisplayUnit(() => {}, { sync: storage.sync, local: storage.local })(), '%', 'a storage with no change events still reads');
