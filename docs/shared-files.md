@@ -80,6 +80,36 @@ A classic script each extension loads ahead of its own scripts, wherever its `ut
 - `followDisplayUnit`: the display unit read once and followed in sync while the popup is open; a change that came during the read stands over what the read found.
 - `bindPresets`: the preset buttons. Each names its percent in `data-vol`; a click, where the caller's `allow` holds, draws that percent on the slider, its value and the current card in the display unit, then hands the percent and its gain to the caller's `pick`.
 
+<a id="measure"></a>
+## The measurement: `core/loudness.js` and `audio-worklet.js`
+
+The `measure` group, for an extension that measures the loudness of the media a page plays with the Web Audio API. What an extension tells the meter — which windows an ad holds out, which ones a change of volume skips, which ones it takes back — is decided in the extension's own script; the meter knows the operations, not the reasons for them.
+
+<a id="loudness"></a>
+### `core/loudness.js`
+
+A classic script that declares one name, `channelVolumeLoudness`, and reaches for no extension API, so an extension can load it in the page's own world (a content script entry with `"world": "MAIN"`) ahead of the script that measures, as well as in its own. The object it declares and the coefficients it hands out are frozen, so the page it shares a world with cannot change them.
+
+- `K_PRE_48K`, `K_RLB_48K`, `redesignBiquad`, `kForSampleRate`: the BS.1770-4 K-weighting — the pre-filter's high shelf and the RLB high-pass — as written down at 48 kHz; a biquad taken to another rate through its analog form (inverse bilinear transform at the rate it was written for, bilinear transform at the new one); the two filters for a rate, the written ones within 1 Hz of 48 kHz and designed again otherwise.
+- `meanSquareToLufs`: `-0.691 + 10 log10(ms)`, and `-Infinity` for anything that is not a finite number above 0.
+- `normalizeForVolume`: a block tapped ahead of an element's own volume, divided by the volume squared where the volume is between 0 and 1 (both left out), and left as it is otherwise.
+- `WORKLET_PROCESSOR`, `buildChain`: the name `audio-worklet.js` registers its processor under; the chain from a source node through the two filters for the context's rate to an `AudioWorkletNode` of that processor, with `onBlock` as its port's message handler, and from it into a gain of 0 connected to the destination, so the measurement adds nothing to the output. It answers the worklet node. The caller has loaded `audio-worklet.js` into the context before.
+- `BLOCK_SEC` (0.1 s), `MOMENTARY_BLOCKS` (4), `SHORT_BLOCKS` (30), `GATE_BLOCKS` (4), `MAX_INTEGRATED_BLOCKS` (36000, an hour of windows), `MIN_SEED_WINDOWS` (300) and `MAX_SEED_WINDOWS` (1800), `BOUNDARY_SKIP_BLOCKS` (4): the block the worklet is asked for, the blocks Momentary and Short-term are read over, the blocks of a gating window (BS.1770-4's 400 ms windows overlapping by 75%: one window per block), the windows the ring holds, the bounds of a seed, and the windows a boundary keeps out.
+- `createMeter`: one measurement.
+  - `addBlock(ms, hold)`: a block from the worklet, already referenced to the level it is measured at. It answers `momentary` and `shortTerm` (the mean of the last 4 and 30 blocks, or of all there are, as LUFS), `window` (the mean of the last 4 blocks, the gating window this block completes, or `null` before there are 4), `skipped` (whether the boundary skip took the window) and `integrated` (`{ lufs, windows }`). A window is observed, and numbered from 1 since the last reset, whatever happens to it. Under `hold` it is not appended and the boundary skip stays where it is; otherwise, while a boundary skip runs, the skip takes it and counts down; otherwise it is appended to the ring, which gives back its oldest entry once it holds `MAX_INTEGRATED_BLOCKS`, and indexed where it is at or above the absolute gate (-70 LUFS).
+  - The Integrated level is the mean of the indexed windows at or above the relative gate, 10 LU under the mean of the index, and `-Infinity` where the index holds none. Its `windows` are the windows inside the relative gate, with the seed's entries standing for the count the seed was given where the seed is inside both gates, and held to `MAX_SEED_WINDOWS`. The index is a balanced tree carrying each subtree's sum and count, so the gate is read in O(log n) whatever order the levels come in.
+  - `reset(lufs, windows)`: empties the blocks and the ring and numbers the windows from 1 again. Where `lufs` is a finite level whose mean square is finite, the seed is laid down as `max(MIN_SEED_WINDOWS, claimed)` entries numbered 0, where `claimed` is `windows` held to `MAX_SEED_WINDOWS` where it is a positive safe integer, and 0 otherwise. A seed under the absolute gate stays out of the index. A boundary skip in progress runs on.
+  - `clearBlocks()`: the next gating window starts from the next block; Integrated is kept.
+  - `skipBoundary()`, `boundaryWindowsLeft()`: the next `BOUNDARY_SKIP_BLOCKS` windows that are not held stay out of Integrated, counted again from the full number where a skip is already running; and how many of them are left.
+  - `windowsObserved()`, `windowsSinceReset()`: the windows formed since the last reset; and those of them appended and not removed since.
+  - `appendedWindowsSince(first)`: how many of the newest entries of the ring came from window `first` or later, counting from the newest back to the first that did not.
+  - `removeRecentWindows(count)`: takes up to `count` of the newest entries out of the ring and the index, never more than `windowsSinceReset()` or what the ring holds, so a seed's entries are never taken. It answers the mean square of each, oldest first.
+
+<a id="worklet"></a>
+### `audio-worklet.js`
+
+The `k-mean-square` processor. Over each block of `processorOptions.blockSec` seconds at the context's rate (0.1 s where that is not a number above 0, and 64 samples at least) it posts `{ ms, samples }`, the mean of L² + R²; a mono input counts its one channel on both sides. A render quantum that brings no input keeps the part of the block already measured. An extension that loads it into a page's context lists it in `web_accessible_resources`.
+
 <a id="mutation"></a>
 ## The mutation sweep: `tools/mutation/`
 
@@ -99,7 +129,7 @@ What holds a suite to more than being green. `equivalents.md` beside these scrip
 <a id="coverage"></a>
 ## The coverage report: `tools/coverage/v8-to-lcov.mjs`
 
-`v8-to-lcov.mjs <coverage dir> <lcov out> <source>…` turns the coverage V8 leaves under `NODE_V8_COVERAGE` into an lcov report of the sources named. A source is counted from every script compiled from it, whatever context loaded it — a `file:` URL naming its own path, any other URL ending in its name — and not from a script whose text is not as long as it. A line counts as run where any of its code ran, and is reported as a branch left untaken where some of it did not; blank lines and lines holding only a comment are not reported, and a named source nothing loaded is reported with every line unrun. The shared `ci.yaml` names the JS files `pack.py --list` ships but those under `core/`, which this repository's suite covers.
+`v8-to-lcov.mjs <coverage dir> <lcov out> <source>…` turns the coverage V8 leaves under `NODE_V8_COVERAGE` into an lcov report of the sources named. A source is counted from every script compiled from it, whatever context loaded it — a `file:` URL naming its own path, any other URL ending in its name — and not from a script whose text is not as long as it. A line counts as run where any of its code ran, and is reported as a branch left untaken where some of it did not; blank lines and lines holding only a comment are not reported, and a named source nothing loaded is reported with every line unrun. The shared `ci.yaml` names the JS files `pack.py --list` ships but those under `core/` and `audio-worklet.js`, which this repository's suite covers.
 
 <a id="package"></a>
 ## The package and the icons: `pack.py`, `gen_icons.py`

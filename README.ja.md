@@ -13,6 +13,7 @@ channel-volume の拡張機能 ([yt-channel-volume](https://github.com/semnil/yt
 | 組 | ファイル |
 |---|---|
 | `base` | `core/common.js` (各拡張機能が自分のスクリプトより先に読み込むコード)、`pack.py`、`gen_icons.py`、変異掃引 (`tools/mutation/`)、カバレッジの変換 (`tools/coverage/`)、`tools/check-shared.sh`、`.github/workflows/ci.yaml`、毎日の同期 (このリポジトリの `sync-core.sh` を走らせる `.github/workflows/sync-core.yaml`)、共有ファイルをどこでも LF の改行で取り出させる `.gitattributes` |
+| `measure` | ページが再生するものを測る拡張機能のためのラウドネス測定: `core/loudness.js` (K 特性重み付け・チェーン・メーター。ページ自身のワールドでも読み込める) と `audio-worklet.js` (チェーンが流し込む AudioWorklet のプロセッサー) |
 | `release` | `.github/workflows/release.yaml`、`.github/workflows/tag-release.yaml` と、それらが走らせるスクリプト |
 | `auto-merge` | Dependabot の自動マージの workflow とそのテスト |
 | `public` | `CODEOWNERS`、`FUNDING.yml`、issue のテンプレート |
