@@ -490,6 +490,11 @@ test('gainForLevel takes a level to the target, within the gain range', () => {
   assert.ok(Math.abs(c.gainForLevel(null, -18) - Math.pow(10, -18 / 20)) < 1e-12, 'null counts as 0, as the arithmetic has it');
 });
 
+test('AUTO_FOLLOW_INTERVAL_MS lets Auto follow a moving level once a second', () => {
+  const c = load();
+  assert.equal(vm.runInContext('AUTO_FOLLOW_INTERVAL_MS', c), 1000);
+});
+
 test('isStorableGain takes a finite gain within the range, and clampGain holds one to it', () => {
   const c = load();
   for (const gain of [0, 0.5, 1, 6]) assert.equal(c.isStorableGain(gain), true, String(gain));
