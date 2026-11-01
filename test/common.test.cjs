@@ -1001,37 +1001,62 @@ test('sendTabMessage sends to the popup\'s tab and answers with its reply, and a
   assert.equal(sent.length, 1, 'nothing is sent without a tab');
 });
 
-test('createSaveNotice is raised by an answer that is not ok, lowered by one that is, and by another owner', () => {
+test('createSaveNotice is raised by the latest save\'s answer that is not ok, lowered by one that is, and by another owner', () => {
   const hint = { textContent: 'hint', error: false };
   hint.classList = { toggle: (name, force) => { assert.equal(name, 'error'); hint.error = force; } };
   const c = load({ chrome: { i18n: { getMessage: (key) => (key === 'gainSaveFailed' ? 'Not saved' : '') } } });
   const notice = c.createSaveNotice();
+  const save = (answer) => notice.send()(answer);
   assert.equal(notice.raised(), false);
   assert.equal(notice.draw(hint), false);
   assert.deepEqual([hint.textContent, hint.error], ['hint', false], 'a notice not raised leaves the hint');
+  notice.showOwner('user:1');
   for (const answer of [{ ok: false, reason: 'state moved' }, { ok: false, reason: 'storage update failed' }, undefined, null, {}]) {
-    assert.equal(notice.take({ ok: true }), true);
-    assert.equal(notice.take(answer), false, `${JSON.stringify(answer)} is not ok`);
+    assert.equal(save({ ok: true }), true);
+    assert.equal(save(answer), false, `${JSON.stringify(answer)} is not ok`);
     assert.equal(notice.raised(), true, `${JSON.stringify(answer)} raises it`);
   }
   assert.equal(notice.draw(hint), true);
   assert.deepEqual([hint.textContent, hint.error], ['Not saved', true]);
-  assert.equal(notice.take({ ok: true }), true);
+  assert.equal(save({ ok: true }), true);
   assert.equal(notice.raised(), false, 'an answer that is ok lowers it');
   notice.draw(hint);
   assert.equal(hint.error, false);
-  notice.raise();
-  assert.equal(notice.raised(), true, 'raise raises it');
-  // The owner: the first one shown and the same one again leave it; another
-  // one lowers it, and none leaves it as it is.
-  notice.showOwner('user:1');
+  // The owner: the same one again and none leave it; another one lowers it.
+  save(null);
   notice.showOwner('user:1');
   notice.showOwner('');
-  assert.equal(notice.raised(), true, 'the first owner, the same one and none leave it');
+  assert.equal(notice.raised(), true, 'the same owner and none leave it');
   notice.showOwner('user:2');
   assert.equal(notice.raised(), false, 'another owner lowers it');
-  notice.raise();
+  save(null);
   notice.showOwner('');
   notice.showOwner('user:2');
   assert.equal(notice.raised(), true, 'none in between is not another owner');
+});
+
+test('createSaveNotice leaves the notice to the latest save, and to the owner it was sent for', () => {
+  const c = load();
+  const notice = c.createSaveNotice();
+  notice.showOwner('UCa|video');
+  // An earlier save answered after a later one: the later one's answer stands.
+  const first = notice.send();
+  const second = notice.send();
+  assert.equal(second({ ok: false, reason: 'state moved' }), false);
+  assert.equal(first({ ok: true }), true, 'the earlier answer still says whether it was ok');
+  assert.equal(notice.raised(), true, 'an earlier save that landed does not take the later one\'s notice down');
+  const third = notice.send();
+  const fourth = notice.send();
+  fourth({ ok: true });
+  third(null);
+  assert.equal(notice.raised(), false, 'nor does an earlier one that failed raise it');
+
+  // A save sent while another owner was shown.
+  const forA = notice.send();
+  notice.showOwner('UCb|video');
+  assert.equal(forA({ ok: false, reason: 'request failed' }), false);
+  assert.equal(notice.raised(), false, 'its failure does not raise the notice for the owner shown now');
+  const forB = notice.send();
+  forB(null);
+  assert.equal(notice.raised(), true, 'a save sent for the owner shown is taken');
 });
