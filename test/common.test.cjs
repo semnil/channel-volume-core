@@ -1205,6 +1205,62 @@ test('holdPopupSlider keeps a key hold and its value through a press of the poin
   assert.deepEqual(s.popup.saves, [120, 160, 155], 'and its keyup saves what it moved');
 });
 
+test('holdPopupSlider keeps a press of the pointer that a key hold saved within as one gesture', () => {
+  // The key is let go of, and saves, while the pointer is still down; the
+  // release's change that follows carries nothing new.
+  const s = popupSlider();
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.fire('pointerdown');
+  s.move(195);
+  s.fire('keyup', { key: 'ArrowRight' });
+  s.fire('pointerup');
+  s.fire('change');
+  assert.deepEqual([s.popup.saves, s.popup.begins], [[195], 1], 'the release saves nothing more and begins nothing');
+
+  // The drag goes on after the key's save: it stays the gesture it was, and
+  // its change saves what it moved to.
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.fire('pointerdown');
+  s.move(200);
+  s.fire('keyup', { key: 'ArrowRight' });
+  s.move(220);
+  s.fire('change');
+  s.fire('pointerup');
+  assert.deepEqual([s.popup.saves, s.popup.begins], [[195, 200, 220], 2], 'the drag after the key is part of its gesture');
+
+  // A drag the browser cancels after the key saved within it leaves the
+  // saved value; one cancelled after it moved on puts the thumb back there.
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.fire('pointerdown');
+  s.move(230);
+  s.fire('keyup', { key: 'ArrowRight' });
+  s.fire('pointercancel');
+  assert.deepEqual([s.slider.value, s.popup.saves], ['230', [195, 200, 220, 230]], 'a cancel with nothing unsaved moves nothing');
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.fire('pointerdown');
+  s.move(240);
+  s.fire('keyup', { key: 'ArrowRight' });
+  s.move(260);
+  s.fire('pointercancel');
+  assert.deepEqual([s.slider.value, s.popup.saves.at(-1)], ['240', 240], 'a cancel puts the thumb back to the value the key saved');
+});
+
+test('holdPopupSlider takes a drag whose release comes ahead of its change as one gesture', () => {
+  const s = popupSlider();
+  s.fire('pointerdown');
+  s.move(150);
+  s.fire('pointerup');
+  s.fire('change');
+  assert.deepEqual([s.popup.saves, s.popup.begins], [[150], 1], 'the change after the release saves within the same gesture');
+  // A cancel that reaches the slider once it is let go of moves nothing, a
+  // key having moved the value since.
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.move(155);
+  s.fire('keyup', { key: 'ArrowRight' });
+  s.fire('pointercancel');
+  assert.deepEqual([s.slider.value, s.popup.saves], ['155', [150, 155]], 'a cancel with no press held leaves the slider');
+});
+
 test('holdPopupSlider ends a gesture at a blur, and sends nothing after it until the next press', () => {
   for (const blur of ['slider', 'window']) {
     const s = popupSlider();
