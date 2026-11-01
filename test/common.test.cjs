@@ -1059,4 +1059,16 @@ test('createSaveNotice leaves the notice to the latest save, and to the owner it
   const forB = notice.send();
   forB(null);
   assert.equal(notice.raised(), true, 'a save sent for the owner shown is taken');
+
+  // A save for another owner than the one shown, such as a gesture begun
+  // before the popup came to show this one.
+  const late = notice.send('UCb|video');
+  const begunOnA = notice.send('UCa|video');
+  assert.equal(begunOnA({ ok: false, reason: 'state moved' }), false, 'its answer still says whether it was ok');
+  assert.equal(late({ ok: true }), true);
+  assert.equal(notice.raised(), false, 'it does not raise the notice, nor make the save for the owner shown an earlier one');
+  notice.send('UCb|video')(null);
+  const begunOnAAgain = notice.send('UCa|video');
+  begunOnAAgain({ ok: true });
+  assert.equal(notice.raised(), true, 'nor does its ok take the notice down');
 });
