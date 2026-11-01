@@ -5,7 +5,7 @@
 // gain for a level, the gain a write may store, the stored gain per type, a
 // row's name, label and Auto flags, the worker's write listener and a page's
 // request to it, the slider keys, the catalog lookup, the HTML escape, the
-// pages' wording and language, a page's reveal, the gain as one text, the
+// pages' wording and language, a page's reveal and first load, the gain as one text, the
 // popup's cards, the settings page's error line, and the
 // popup's asking again for the state.
 
@@ -697,12 +697,62 @@ test('revealPage lays the page out, then takes initializing off on the next fram
   assert.deepEqual([...classes], ['other'], 'and only initializing comes off at it');
 });
 
+test('runPageLoad answers a load that lands, one that fails and one that never settles, and shows the page after', async () => {
+  const run = (read, onLoaded = (steps) => steps.push('loaded')) => {
+    const steps = [];
+    const timers = new Map();
+    let next = 0;
+    const c = loadForPage({
+      setTimeout: (fn, ms) => { timers.set(++next, { fn, ms }); return next; },
+      clearTimeout: (id) => { steps.push('cleared'); timers.delete(id); }
+    }, steps);
+    const done = c.runPageLoad(() => read(steps), {
+      onLoaded: () => onLoaded(steps),
+      onFailed: (err) => steps.push('failed ' + err.message)
+    });
+    return { done, steps, timers };
+  };
+  const landed = run(async (steps) => { steps.push('read'); });
+  assert.deepEqual([...landed.timers.values()].map((timer) => timer.ms), [3000], 'the deadline is armed at 3000 ms');
+  await landed.done;
+  assert.deepEqual(landed.steps, ['read', 'loaded', 'cleared', 'shown']);
+  assert.equal(landed.timers.size, 0, 'and disarmed once it lands');
+
+  const refused = run(async () => { throw new Error('quota'); });
+  await refused.done;
+  assert.deepEqual(refused.steps, ['failed quota', 'cleared', 'shown']);
+
+  const plain = run((steps) => { steps.push('read'); });
+  await plain.done;
+  assert.deepEqual(plain.steps, ['read', 'loaded', 'cleared', 'shown'], 'a load that is not async lands as well');
+
+  const broken = run(() => {}, () => { throw new Error('draw'); });
+  await broken.done;
+  assert.deepEqual(broken.steps, ['failed draw', 'cleared', 'shown'], 'onLoaded throwing is a failure too');
+
+  const stuck = run(() => new Promise(() => {}));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(stuck.steps, [], 'a load still out is neither answered nor shown');
+  [...stuck.timers.values()][0].fn();
+  await stuck.done;
+  assert.deepEqual(stuck.steps, ['failed page load timed out', 'cleared', 'shown']);
+});
+
 test('formatGainText is the gain\'s number and unit in the display unit, as one text', () => {
   const c = load();
   assert.equal(c.formatGainText(1.5, '%'), '150%');
   assert.equal(c.formatGainText(2, 'dB'), '6.0 dB');
   assert.equal(c.formatGainText(0, 'dB'), '-Inf dB');
 });
+
+// core/common.js with a page that records when it is shown.
+function loadForPage(globals, steps) {
+  return load({
+    document: { body: { offsetWidth: 0, classList: { remove: () => steps.push('shown') } } },
+    requestAnimationFrame: (callback) => callback(),
+    ...globals
+  });
+}
 
 // An element whose text replaces every child, as a browser's does, and whose
 // text reads its own and its children's in order.
