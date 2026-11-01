@@ -983,6 +983,44 @@ test('showPopupStatus puts the catalog\'s text in the status line in place of th
   assert.deepEqual([line.classes.has('hidden'), main.classes.has('hidden')], [true, false]);
 });
 
+test('bindPresets draws the percent a preset names in the display unit and hands it on, and does nothing where allow does not hold', () => {
+  const c = load({ document: { createElement: (tag) => Object.assign(cardElement(''), { tag }) } });
+  const button = (percent) => {
+    const listeners = {};
+    return { dataset: { vol: String(percent) }, addEventListener: (type, fn) => { listeners[type] = fn; }, click: () => listeners.click() };
+  };
+  const buttons = [button(50), button(200)];
+  const slider = { value: '100' };
+  const valueEl = { textContent: '100%' };
+  const currentEl = cardElement('value current');
+  let unit = '%';
+  let allowed = true;
+  const picked = [];
+  c.bindPresets(buttons, { slider, valueEl, currentEl, unit: () => unit, allow: () => allowed, pick: (percent, gain) => picked.push([percent, gain]) });
+  buttons[1].click();
+  assert.deepEqual([slider.value, valueEl.textContent, currentEl.textContent, currentEl.className], ['200', '200%', '200%', 'value current']);
+  assert.deepEqual(picked, [[200, 2]]);
+  unit = 'dB';
+  buttons[0].click();
+  const half = c.formatGain(0.5, 'dB');
+  assert.deepEqual([slider.value, valueEl.textContent, currentEl.textContent], ['50', half.text + half.unit, half.text + half.unit], 'the unit is read at the click');
+  assert.deepEqual(picked, [[200, 2], [50, 0.5]]);
+  allowed = false;
+  buttons[1].click();
+  assert.deepEqual([slider.value, picked.length], ['50', 2], 'a click allow refuses draws and hands on nothing');
+});
+
+test('bindPresets takes every click where it is given no allow', () => {
+  const c = load({ document: { createElement: (tag) => Object.assign(cardElement(''), { tag }) } });
+  let click = null;
+  const picked = [];
+  c.bindPresets([{ dataset: { vol: '0' }, addEventListener: (type, fn) => { click = fn; } }], {
+    slider: { value: '100' }, valueEl: { textContent: '' }, currentEl: cardElement('value current'), unit: () => '%', pick: (percent) => picked.push(percent)
+  });
+  click();
+  assert.deepEqual(picked, [0]);
+});
+
 test('followDisplayUnit reads the unit, follows changes in sync, and lets a change made during the read stand', async () => {
   const listeners = [];
   let stored = { displayUnit: 'dB' };
