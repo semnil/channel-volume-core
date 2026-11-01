@@ -936,6 +936,20 @@ test('setUnknown shows a card with no value as ---, with its classes and unknown
   assert.equal(card.className, 'value unknown');
 });
 
+test('drawOwnerName shows the owner\'s name, or the catalog\'s text where there is none, with the full text as its title', () => {
+  const classes = new Set(['uploader-name', 'empty']);
+  const el = { textContent: 'markup', title: '' };
+  el.classList = { toggle: (name, force) => { if (force) classes.add(name); else classes.delete(name); } };
+  const c = load({ chrome: { i18n: { getMessage: (key) => (key === 'ownerMissing' ? 'Not detected' : '') } } });
+  c.drawOwnerName(el, 'A rather long channel name', 'ownerMissing');
+  assert.deepEqual([el.textContent, el.title, classes.has('empty')], ['A rather long channel name', 'A rather long channel name', false]);
+  for (const name of ['', undefined, null]) {
+    c.drawOwnerName(el, name, 'ownerMissing');
+    assert.deepEqual([el.textContent, el.title, classes.has('empty')], ['Not detected', 'Not detected', true], `${name}`);
+  }
+  assert.ok(classes.has('uploader-name'), 'the element keeps its other classes');
+});
+
 test('showSettingsError shows #settingsError with the catalog\'s text for a key, and hides it', () => {
   const line = { textContent: 'markup', hidden: true };
   line.classList = { toggle: (name, force) => { assert.equal(name, 'hidden'); line.hidden = force; } };
