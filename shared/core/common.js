@@ -351,8 +351,9 @@ function createSliderKeys() {
 // stored value (current) again; a press of the pointer while a key is held
 // leaves the key's hold and its value as they are. After that blur the
 // slider's input and change move nothing until the next press of the pointer
-// or of a value key, and the change draws the stored value. A drag's release
-// is taken on the slider, which holds the pointer it was pressed with.
+// or of a value key, and the change draws the stored value; a drag the browser
+// cancels ends the same way, without a write. A drag's release is taken on
+// the slider, which holds the pointer it was pressed with.
 function holdSettingsSlider(slider, { current, drawLabel, save }) {
   const keys = createSliderKeys();
   let keyHeld = false;
@@ -393,7 +394,15 @@ function holdSettingsSlider(slider, { current, drawLabel, save }) {
     pointerHeld = false;
   };
   slider.addEventListener('pointerup', releasePointer);
-  slider.addEventListener('pointercancel', releasePointer);
+  // A drag the browser takes away writes nothing: the stored value is drawn
+  // and the gesture ends, so the change Chrome fires later moves nothing. A
+  // key held through it stays held.
+  slider.addEventListener('pointercancel', () => {
+    pointerHeld = false;
+    if (keyHeld) return;
+    drawStored();
+    gestureEnded = true;
+  });
   slider.addEventListener('keydown', (event) => {
     if (!keys.press(event)) return;
     gestureEnded = false;

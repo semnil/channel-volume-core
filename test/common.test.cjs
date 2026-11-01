@@ -747,6 +747,31 @@ test('holdSettingsSlider ends a gesture at a blur, writing a moved key hold, and
   }
 });
 
+test('holdSettingsSlider writes nothing for a drag the browser cancels, and takes nothing after it until the next press', () => {
+  const s = settingsSlider();
+  s.fire('pointerdown');
+  s.move(-11);
+  s.page.stored = -24;
+  s.fire('pointercancel');
+  assert.deepEqual([s.held(), s.slider.value, s.page.label, s.page.saves], [false, '-24', '-24', []],
+    'the stored value is drawn and nothing is written');
+  s.move(-11);
+  s.fire('change');
+  assert.deepEqual([s.slider.value, s.page.label, s.page.saves], ['-24', '-24', []], 'and the change Chrome fires later moves nothing');
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.move(-23);
+  s.fire('keyup', { key: 'ArrowRight' });
+  assert.deepEqual(s.page.saves, [-23], 'the next press writes again');
+
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.move(-22);
+  s.fire('pointerdown');
+  s.fire('pointercancel');
+  assert.equal(s.held(), true, 'a key held through a cancelled press stays held');
+  s.fire('keyup', { key: 'ArrowRight' });
+  assert.deepEqual(s.page.saves, [-23, -22], 'and its keyup writes what it moved to');
+});
+
 test('holdSettingsSlider keeps a key hold through a press of the pointer, and writes what the key moved at its keyup', () => {
   const s = settingsSlider();
   s.fire('keydown', { key: 'ArrowRight' });
