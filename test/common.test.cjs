@@ -39,12 +39,13 @@ const DOCUMENT = {
   })
 };
 
-test('the settings key, the Target LUFS default and range and the gain range are the extensions\' values', () => {
+test('the settings key, the Target LUFS default and range, the gain overlay default and the gain range are the extensions\' values', () => {
   const c = load();
   assert.equal(vm.runInContext('SETTINGS_KEY', c), 'autoLoudnessSettings');
   assert.equal(vm.runInContext('DEFAULT_TARGET_LUFS', c), -18);
   assert.equal(vm.runInContext('MIN_TARGET_LUFS', c), -30);
   assert.equal(vm.runInContext('MAX_TARGET_LUFS', c), -6);
+  assert.equal(vm.runInContext('DEFAULT_SHOW_GAIN_OVERLAY', c), true);
   assert.equal(vm.runInContext('MIN_GAIN', c), 0);
   assert.equal(vm.runInContext('MAX_GAIN', c), 6);
 });
