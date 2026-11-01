@@ -989,3 +989,49 @@ test('retryGetState asks again until done, at most the times given, and stops at
   await flush();
   assert.deepEqual([asked, taken.length], [0, 0], 'a state settled while the timer waits is not asked for');
 });
+
+test('sendTabMessage sends to the popup\'s tab and answers with its reply, and a popup with no tab sends nothing', async () => {
+  const sent = [];
+  const c = load({ chrome: { tabs: { sendMessage: async (tabId, message) => { sent.push([tabId, message]); return { ok: true }; } } } });
+  assert.deepEqual(await c.sendTabMessage(7, { type: 'getState' }), { ok: true });
+  assert.deepEqual(sent, [[7, { type: 'getState' }]]);
+  for (const tabId of [null, undefined, 0]) {
+    await assert.rejects(c.sendTabMessage(tabId, { type: 'getState' }), /no tab/, `tab ${tabId}`);
+  }
+  assert.equal(sent.length, 1, 'nothing is sent without a tab');
+});
+
+test('createSaveNotice is raised by an answer that is not ok, lowered by one that is, and by another owner', () => {
+  const hint = { textContent: 'hint', error: false };
+  hint.classList = { toggle: (name, force) => { assert.equal(name, 'error'); hint.error = force; } };
+  const c = load({ chrome: { i18n: { getMessage: (key) => (key === 'gainSaveFailed' ? 'Not saved' : '') } } });
+  const notice = c.createSaveNotice();
+  assert.equal(notice.raised(), false);
+  assert.equal(notice.draw(hint), false);
+  assert.deepEqual([hint.textContent, hint.error], ['hint', false], 'a notice not raised leaves the hint');
+  for (const answer of [{ ok: false, reason: 'state moved' }, { ok: false, reason: 'storage update failed' }, undefined, null, {}]) {
+    assert.equal(notice.take({ ok: true }), true);
+    assert.equal(notice.take(answer), false, `${JSON.stringify(answer)} is not ok`);
+    assert.equal(notice.raised(), true, `${JSON.stringify(answer)} raises it`);
+  }
+  assert.equal(notice.draw(hint), true);
+  assert.deepEqual([hint.textContent, hint.error], ['Not saved', true]);
+  assert.equal(notice.take({ ok: true }), true);
+  assert.equal(notice.raised(), false, 'an answer that is ok lowers it');
+  notice.draw(hint);
+  assert.equal(hint.error, false);
+  notice.raise();
+  assert.equal(notice.raised(), true, 'raise raises it');
+  // The owner: the first one shown and the same one again leave it; another
+  // one lowers it, and none leaves it as it is.
+  notice.showOwner('user:1');
+  notice.showOwner('user:1');
+  notice.showOwner('');
+  assert.equal(notice.raised(), true, 'the first owner, the same one and none leave it');
+  notice.showOwner('user:2');
+  assert.equal(notice.raised(), false, 'another owner lowers it');
+  notice.raise();
+  notice.showOwner('');
+  notice.showOwner('user:2');
+  assert.equal(notice.raised(), true, 'none in between is not another owner');
+});
