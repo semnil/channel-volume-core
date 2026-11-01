@@ -1072,3 +1072,270 @@ test('createSaveNotice leaves the notice to the latest save, and to the owner it
   begunOnAAgain({ ok: true });
   assert.equal(notice.raised(), true, 'nor does its ok take the notice down');
 });
+
+// A popup's gain slider and the window, each keeping its listeners, the
+// timers holdPopupSlider sets (run when the case says so), and what the popup
+// is handed: each gesture's begin, the value drawn, previews and saves.
+function popupSlider({ value = 100, previewing = true } = {}) {
+  const on = (target) => (type, fn) => { (target.listeners[type] ||= []).push(fn); };
+  const slider = { value: String(value), listeners: {} };
+  slider.addEventListener = on(slider);
+  const win = { listeners: {} };
+  win.addEventListener = on(win);
+  const timers = [];
+  const delays = [];
+  const popup = { begins: 0, drawn: [], previews: [], saves: [], previewing };
+  const c = load({ window: win, setTimeout: (fn, ms) => { timers.push(fn); delays.push(ms); } });
+  const held = c.holdPopupSlider(slider, {
+    begin: () => { popup.begins++; },
+    draw: (v) => { popup.drawn.push(v); },
+    canPreview: () => popup.previewing,
+    preview: (v) => { popup.previews.push(v); },
+    save: (v) => { popup.saves.push(v); }
+  });
+  const fire = (target, type, event = {}) => {
+    for (const fn of target.listeners[type] || []) fn({ target, button: 0, ...event });
+  };
+  const move = (v) => { slider.value = String(v); fire(slider, 'input'); };
+  const runTimers = () => { for (const fn of timers.splice(0)) fn(); };
+  return { c, slider, popup, held, delays, runTimers, move, fire: (type, event) => fire(slider, type, event), blurWindow: () => fire(win, 'blur') };
+}
+
+test('holdPopupSlider previews a drag, keeps it alive while held, and saves it at its change', () => {
+  const s = popupSlider();
+  s.fire('pointerdown');
+  assert.deepEqual([s.held(), s.popup.begins], [true, 1], 'a press of the primary button begins a gesture and is held');
+  s.move(150); s.move(200);
+  assert.deepEqual([s.popup.drawn, s.popup.previews, s.popup.saves], [[150, 200], [150, 200], []], 'each input is drawn and previewed');
+  s.runTimers();
+  s.runTimers();
+  assert.deepEqual(s.popup.previews, [150, 200, 200, 200], 'held still, the preview is sent again each period');
+  assert.ok(vm.runInContext('PREVIEW_KEEP_ALIVE_MS', s.c) === 1000 && s.delays.every((ms) => ms === 1000), `every ${s.delays}`);
+  s.fire('change');
+  s.fire('pointerup');
+  assert.deepEqual([s.popup.saves, s.held()], [[200], false], 'its change saves once');
+  s.runTimers();
+  assert.equal(s.popup.previews.length, 4, 'a saved preview is not sent again');
+
+  // A release on the value the drag began on fires no change and saves
+  // nothing; the preview left over is not kept alive.
+  s.fire('pointerdown');
+  s.move(300); s.move(200);
+  s.fire('pointerup');
+  s.runTimers();
+  assert.deepEqual([s.popup.saves, s.popup.previews.slice(4)], [[200], [300, 200]], 'nothing is saved or sent again');
+
+  for (const button of [1, 2]) {
+    s.fire('pointerdown', { button });
+    assert.equal(s.held(), false, `a press with button ${button} holds nothing`);
+  }
+});
+
+test('holdPopupSlider begins a gesture at an input with none in progress, and previews only where canPreview holds', () => {
+  const s = popupSlider({ previewing: false });
+  s.move(120);
+  assert.deepEqual([s.popup.begins, s.popup.drawn, s.popup.previews], [1, [120], []], 'an input begins one, and is drawn with no preview');
+  s.move(130);
+  assert.equal(s.popup.begins, 1, 'and the next input is part of it');
+  s.fire('change');
+  assert.deepEqual(s.popup.saves, [130]);
+  s.move(140);
+  assert.equal(s.popup.begins, 2, 'after the save an input begins another');
+  s.fire('change');
+  s.slider.value = '145';
+  s.fire('change');
+  assert.deepEqual([s.popup.begins, s.popup.saves], [3, [130, 140, 145]], 'and so does a change with none in progress');
+  s.popup.previewing = true;
+  s.fire('pointerdown');
+  s.move(150);
+  s.popup.previewing = false;
+  s.runTimers();
+  assert.deepEqual(s.popup.previews, [150], 'the keep-alive sends nothing where canPreview no longer holds');
+});
+
+test('holdPopupSlider saves a key hold once, at the keyup of the last value key, where a key moved the value', () => {
+  const s = popupSlider();
+  s.fire('keydown', { key: 'ArrowRight' });
+  assert.deepEqual([s.held(), s.popup.begins], [true, 1]);
+  s.move(105); s.fire('change');
+  s.fire('keydown', { key: 'ArrowRight', repeat: true });
+  s.move(110); s.fire('change');
+  assert.deepEqual([s.popup.previews, s.popup.saves], [[105, 110], []], 'each repeat previews, and its change saves nothing');
+  s.runTimers();
+  assert.deepEqual(s.popup.previews, [105, 110, 110], 'a key held still keeps its preview alive');
+  s.fire('keydown', { key: 'ArrowRight' });
+  assert.equal(s.popup.begins, 1, 'the key pressed again stays in the hold');
+  s.fire('keyup', { key: 'ArrowRight' });
+  assert.deepEqual([s.popup.saves, s.held()], [[110], false], 'its keyup saves once');
+
+  s.fire('keydown', { key: 'Tab' });
+  assert.equal(s.held(), false, 'another key holds nothing');
+  s.fire('keydown', { key: 'ArrowLeft' });
+  s.fire('keyup', { key: 'ArrowLeft' });
+  assert.deepEqual(s.popup.saves, [110], 'a hold that moved nothing saves nothing');
+});
+
+test('holdPopupSlider keeps a key hold and its value through a press of the pointer', () => {
+  const s = popupSlider();
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.move(120); s.fire('change');
+  s.fire('pointerdown');
+  assert.equal(s.popup.begins, 1, 'the press begins no gesture of its own');
+  s.fire('pointerup');
+  s.fire('keyup', { key: 'ArrowRight' });
+  assert.deepEqual(s.popup.saves, [120], 'the keyup saves the value the key moved to');
+
+  // A drag during the hold: its change waits for the key, whose keyup saves
+  // the value the slider stands on.
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.move(125);
+  s.fire('pointerdown');
+  s.move(160); s.fire('change');
+  s.fire('pointerup');
+  assert.deepEqual(s.popup.saves, [120], 'the drag\'s change saves nothing while the key is held');
+  s.fire('keyup', { key: 'ArrowRight' });
+  assert.deepEqual(s.popup.saves, [120, 160]);
+
+  // A key pressed during a drag joins it.
+  s.fire('pointerdown');
+  s.fire('keydown', { key: 'ArrowLeft' });
+  assert.equal(s.popup.begins, 3, 'the key begins no gesture of its own');
+  s.move(155);
+  s.fire('keyup', { key: 'ArrowLeft' });
+  assert.deepEqual(s.popup.saves, [120, 160, 155], 'and its keyup saves what it moved');
+});
+
+test('holdPopupSlider keeps a press of the pointer that a key hold saved within as one gesture', () => {
+  // The key is let go of, and saves, while the pointer is still down; the
+  // release's change that follows carries nothing new.
+  const s = popupSlider();
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.fire('pointerdown');
+  s.move(195);
+  s.fire('keyup', { key: 'ArrowRight' });
+  s.fire('pointerup');
+  s.fire('change');
+  assert.deepEqual([s.popup.saves, s.popup.begins], [[195], 1], 'the release saves nothing more and begins nothing');
+  // A state drawn on the slider before the release, with no input of its own.
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.fire('pointerdown');
+  s.move(198);
+  s.fire('keyup', { key: 'ArrowRight' });
+  s.slider.value = '140';
+  s.fire('pointerup');
+  s.fire('change');
+  assert.deepEqual([s.popup.saves, s.popup.begins, s.slider.value], [[195, 198], 2, '140'],
+    'a value drawn before the release is not saved, and stays drawn');
+
+  // The drag goes on after the key's save: it stays the gesture it was, and
+  // its change saves what it moved to.
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.fire('pointerdown');
+  s.move(200);
+  s.fire('keyup', { key: 'ArrowRight' });
+  s.move(220);
+  s.fire('change');
+  s.fire('pointerup');
+  assert.deepEqual([s.popup.saves, s.popup.begins], [[195, 198, 200, 220], 3], 'the drag after the key is part of its gesture');
+
+  // A drag the browser cancels after the key saved within it leaves the
+  // saved value; one cancelled after it moved on puts the thumb back there.
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.fire('pointerdown');
+  s.move(230);
+  s.fire('keyup', { key: 'ArrowRight' });
+  s.fire('pointercancel');
+  assert.deepEqual([s.slider.value, s.popup.saves], ['230', [195, 198, 200, 220, 230]], 'a cancel with nothing unsaved moves nothing');
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.fire('pointerdown');
+  s.move(240);
+  s.fire('keyup', { key: 'ArrowRight' });
+  s.move(260);
+  s.fire('pointercancel');
+  assert.deepEqual([s.slider.value, s.popup.saves.at(-1)], ['240', 240], 'a cancel puts the thumb back to the value the key saved');
+});
+
+test('holdPopupSlider takes a drag whose release comes ahead of its change as one gesture', () => {
+  const s = popupSlider();
+  s.fire('pointerdown');
+  s.move(150);
+  s.fire('pointerup');
+  s.fire('change');
+  assert.deepEqual([s.popup.saves, s.popup.begins], [[150], 1], 'the change after the release saves within the same gesture');
+  // A cancel that reaches the slider once it is let go of moves nothing, a
+  // key having moved the value since.
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.move(155);
+  s.fire('keyup', { key: 'ArrowRight' });
+  s.fire('pointercancel');
+  assert.deepEqual([s.slider.value, s.popup.saves], ['155', [150, 155]], 'a cancel with no press held leaves the slider');
+});
+
+test('holdPopupSlider ends a gesture at a blur, and sends nothing after it until the next press', () => {
+  for (const blur of ['slider', 'window']) {
+    const s = popupSlider();
+    const blurIt = () => (blur === 'window' ? s.blurWindow() : s.fire('blur'));
+    // A key hold saves at the blur.
+    s.fire('keydown', { key: 'ArrowRight' });
+    s.move(130);
+    blurIt();
+    assert.deepEqual([s.popup.saves, s.held()], [[130], false], `${blur}: a key hold saves at the blur`);
+    s.move(140); s.fire('change');
+    s.fire('keyup', { key: 'ArrowRight' });
+    assert.deepEqual([s.popup.saves, s.popup.previews, s.slider.value], [[130], [130], '130'],
+      `${blur}: after it, input and change send nothing, and the thumb goes back`);
+    s.fire('keydown', { key: 'ArrowRight', repeat: true });
+    s.move(150);
+    assert.deepEqual(s.popup.previews, [130], `${blur}: a repeat is no new press`);
+
+    // A drag: the change ahead of the blur saved, and the release's change
+    // after it saves nothing.
+    s.fire('pointerdown');
+    s.move(200); s.fire('change');
+    blurIt();
+    s.move(250); s.fire('change'); s.fire('pointerup');
+    assert.deepEqual([s.popup.saves, s.slider.value], [[130, 200], '200'], `${blur}: a drag after the blur saves nothing more`);
+    s.runTimers();
+    assert.equal(s.popup.previews.at(-1), 200, `${blur}: and sends nothing again`);
+
+    // A blur with nothing held ends nothing.
+    blurIt();
+    s.move(210); s.fire('change');
+    assert.deepEqual(s.popup.saves, [130, 200], `${blur}: with nothing held, the ended gesture stays ended`);
+    s.fire('pointerdown');
+    s.move(220); s.fire('change');
+    assert.deepEqual(s.popup.saves, [130, 200, 220], `${blur}: the next press begins again`);
+    // A blur after a gesture that ended on its own ends nothing.
+    s.fire('pointerup');
+    blurIt();
+    s.move(230); s.fire('change');
+    assert.deepEqual(s.popup.saves, [130, 200, 220, 230], `${blur}: a blur with nothing held leaves the slider answering`);
+  }
+});
+
+test('holdPopupSlider saves nothing for a drag the browser cancels, and puts the thumb back', () => {
+  const s = popupSlider();
+  s.fire('pointerdown');
+  s.move(300);
+  s.fire('pointercancel');
+  assert.deepEqual([s.slider.value, s.popup.drawn.at(-1), s.held()], ['100', 100, false], 'the thumb goes back where the drag began, and is drawn');
+  s.runTimers();
+  s.move(320); s.fire('change');
+  assert.deepEqual([s.popup.saves, s.popup.previews, s.slider.value], [[], [300], '100'], 'nothing is sent again, and nothing after it saves');
+  // A key held through a cancelled press stays held, and its keyup saves the
+  // value the slider stands on.
+  s.fire('keydown', { key: 'ArrowRight' });
+  s.move(110);
+  s.fire('pointerdown');
+  s.move(130);
+  s.fire('pointercancel');
+  assert.equal(s.slider.value, '130', 'the thumb stays where it is');
+  s.fire('keyup', { key: 'ArrowRight' });
+  assert.deepEqual(s.popup.saves, [130], 'the key keeps its value through it');
+
+  // A cancel with no press held moves nothing.
+  s.fire('pointerdown');
+  s.move(170); s.fire('change'); s.fire('pointerup');
+  s.fire('pointercancel');
+  assert.deepEqual([s.slider.value, s.popup.saves], ['170', [130, 170]], 'a cancel after the release moves nothing');
+});
