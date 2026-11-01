@@ -7,8 +7,9 @@
 // request to it, the slider keys, the catalog lookup, the HTML escape, the
 // pages' wording and language, a page's reveal and first load, the gain as one
 // text, the popup's cards, the settings page's error line and its sliders'
-// gestures, the popup's asking again for the state, its owner line, whether
-// its tab is on the site, its status line and its display unit.
+// gestures, the popup's asking again for the state and every second, its
+// owner line, whether its tab is on the site, its status line and its display
+// unit.
 
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -1034,6 +1035,36 @@ test('showSettingsError shows #settingsError with the catalog\'s text for a key,
   assert.deepEqual([line.textContent, line.hidden], ['Not loaded', false]);
   c.showSettingsError(false, 'settingsSaveFailed');
   assert.deepEqual([line.textContent, line.hidden], ['Not loaded', true], 'hiding leaves the text');
+});
+
+test('pollTabState asks first at once and refresh every STATE_POLL_INTERVAL_MS, and resolves once the first is answered', async () => {
+  const intervals = [];
+  const c = load({ setInterval: (fn, ms) => { intervals.push({ fn, ms }); return intervals.length; } });
+  assert.equal(vm.runInContext('STATE_POLL_INTERVAL_MS', c), 1000);
+  const asked = [];
+  let answerFirst = null;
+  const polling = c.pollTabState(
+    async () => { asked.push('refresh'); },
+    () => new Promise((resolve) => { asked.push('first'); answerFirst = resolve; })
+  );
+  let resolved = false;
+  polling.then(() => { resolved = true; });
+  assert.deepEqual(intervals.map((i) => i.ms), [1000], 'the refresh is set going at the interval');
+  assert.deepEqual(asked, ['first'], 'the first ask goes out at once');
+  intervals[0].fn();
+  intervals[0].fn();
+  assert.deepEqual(asked, ['first', 'refresh', 'refresh'], 'and the refresh at each tick, the first unanswered or not');
+  await Promise.resolve();
+  assert.equal(resolved, false, 'it waits for the first answer');
+  answerFirst();
+  await polling;
+  assert.equal(resolved, true);
+
+  // With no first of its own, the refresh is the first ask.
+  intervals.length = 0;
+  asked.length = 0;
+  await c.pollTabState(async () => { asked.push('refresh'); });
+  assert.deepEqual([asked, intervals.length], [['refresh'], 1]);
 });
 
 test('retryGetState asks again until done, at most the times given, and stops at an empty answer or a failure', async () => {
