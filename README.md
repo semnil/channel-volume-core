@@ -13,6 +13,7 @@ The files the channel-volume extensions — [yt-channel-volume](https://github.c
 | Group | Files |
 |---|---|
 | `base` | `core/common.js` (the code each extension loads ahead of its own scripts), `pack.py`, `gen_icons.py`, the mutation sweep (`tools/mutation/`), the coverage converter (`tools/coverage/`), `tools/check-shared.sh`, `.github/workflows/ci.yaml`, the daily sync (`.github/workflows/sync-core.yaml`, which runs this repository's `sync-core.sh`) and `.gitattributes`, which checks every shared file out with LF line endings |
+| `measure` | The loudness measurement for an extension that measures what a page plays: `core/loudness.js` (the K-weighting, the chain and the meter, loadable in the page's own world) and `audio-worklet.js` (the AudioWorklet processor the chain feeds) |
 | `release` | `.github/workflows/release.yaml`, `.github/workflows/tag-release.yaml` and the scripts they run |
 | `auto-merge` | The Dependabot auto-merge workflow and its test |
 | `public` | `CODEOWNERS`, `FUNDING.yml` and the issue templates |

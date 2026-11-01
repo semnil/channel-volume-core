@@ -80,6 +80,36 @@
 - `followDisplayUnit`: 表示単位を一度読み、popup が開いている間は sync の変更に合わせる。読み取りの間に来た変更は、読み取りの結果より優先する。
 - `bindPresets`: プリセットのボタン。それぞれ自分の % を `data-vol` に持つ。押されると、呼び出し側の `allow` が通す限り、その % をスライダー・スライダーの値・現在値のカードに表示単位で描き、% とそのゲインを呼び出し側の `pick` に渡す。
 
+<a id="measure"></a>
+## 測定: `core/loudness.js`・`audio-worklet.js`
+
+`measure` グループ。ページが再生するメディアのラウドネスを Web Audio API で測る拡張のためのもの。メーターに何を伝えるか (広告が外す窓、音量の変化が飛ばす窓、取り消す窓) は拡張自身のスクリプトが決める。メーターが知っているのは操作で、その理由は知らない。
+
+<a id="loudness"></a>
+### `core/loudness.js`
+
+`channelVolumeLoudness` という名前を 1 つだけ宣言し、拡張の API に触れないクラシックスクリプト。そのため拡張は、測るスクリプトより先に、ページ自身のワールド (`"world": "MAIN"` の content script) でも自分のワールドでも読み込める。宣言するオブジェクトと渡す係数は凍結してあり、同じワールドを共有するページからは変えられない。
+
+- `K_PRE_48K`・`K_RLB_48K`・`redesignBiquad`・`kForSampleRate`: BS.1770-4 の K 特性重み付け (プリフィルターの高域シェルフと RLB ハイパス) の 48 kHz での係数。biquad をアナログ形を経て別のレートへ移すもの (書かれたレートで双一次変換を逆にかけ、新しいレートで双一次変換をかける)。あるレートでの 2 つのフィルター。48 kHz から 1 Hz 以内なら書かれた係数そのもの、それ以外は設計し直したもの。
+- `meanSquareToLufs`: `-0.691 + 10 log10(ms)`。0 より大きい有限の数でなければ `-Infinity`。
+- `normalizeForVolume`: 要素自身の音量より手前で取ったブロックを、音量が 0 と 1 の間 (両端は含まない) なら音量の 2 乗で割る。それ以外はそのまま返す。
+- `WORKLET_PROCESSOR`・`buildChain`: `audio-worklet.js` がプロセッサーを登録する名前。ソースノードから、コンテキストのレートに合わせた 2 つのフィルターを通ってそのプロセッサーの `AudioWorkletNode` へ至り (ポートのメッセージ処理は `onBlock`)、そこからゲイン 0 を経て出力先へつながるチェーン。測定の経路は出力に何も足さない。worklet のノードを返す。呼び出し側は先に `audio-worklet.js` をコンテキストへ読み込んでおく。
+- `BLOCK_SEC` (0.1 秒)・`MOMENTARY_BLOCKS` (4)・`SHORT_BLOCKS` (30)・`GATE_BLOCKS` (4)・`MAX_INTEGRATED_BLOCKS` (36000、1 時間分の窓)・`MIN_SEED_WINDOWS` (300) と `MAX_SEED_WINDOWS` (1800)・`BOUNDARY_SKIP_BLOCKS` (4): worklet に頼むブロックの長さ、Momentary と Short-term を読むブロック数、ゲーティング窓 1 つのブロック数 (BS.1770-4 の 75% 重なる 400 ms の窓。ブロックごとに 1 窓)、リングが持つ窓の数、シードの下限と上限、境界が外す窓の数。
+- `createMeter`: 1 つの測定。
+  - `addBlock(ms, hold)`: worklet からのブロック。測る基準の音量へすでに換算したもの。`momentary` と `shortTerm` (直近 4 ブロックと 30 ブロック、足りなければあるだけの平均を LUFS で)、`window` (直近 4 ブロックの平均、つまりこのブロックで完成したゲーティング窓。4 ブロックに満たなければ `null`)、`skipped` (境界のスキップがその窓を取ったか)、`integrated` (`{ lufs, windows }`) を返す。窓はどう扱われても観測済みとして数え、直近のリセットから 1 始まりの番号が付く。`hold` のときは追加せず、境界のスキップもそのまま残す。そうでなく境界のスキップが進行中なら、スキップがその窓を取って残りを 1 減らす。どちらでもなければリングに追加する。リングは `MAX_INTEGRATED_BLOCKS` 個を持つと最も古いものを手放す。絶対ゲート (-70 LUFS) 以上の窓は索引にも入れる。
+  - Integrated は、索引にある窓のうち相対ゲート (索引の平均より 10 LU 下) 以上のものの平均で、索引が空なら `-Infinity`。その `windows` は相対ゲートの内側にある窓の数で、シードが両方のゲートの内側にあるとき、シードの分は渡された数として数える。`MAX_SEED_WINDOWS` を上限とする。索引は部分木の和と数を持つ平衡木で、レベルがどの順で来ても O(log n) でゲートを読める。
+  - `reset(lufs, windows)`: ブロックとリングを空にし、窓の番号を 1 から振り直す。`lufs` が有限のレベルで、その平均二乗も有限なら、シードを `max(MIN_SEED_WINDOWS, claimed)` 個の番号 0 の項目として置く。`claimed` は、`windows` が正の安全な整数なら `MAX_SEED_WINDOWS` を上限としたその数、それ以外は 0。絶対ゲートより下のシードは索引に入らない。進行中の境界のスキップは続く。
+  - `clearBlocks()`: 次のゲーティング窓を次のブロックから始める。Integrated はそのまま。
+  - `skipBoundary()`・`boundaryWindowsLeft()`: この後の、`hold` でない `BOUNDARY_SKIP_BLOCKS` 個の窓を Integrated から外す。スキップが進行中なら残りを満数に戻す。残りの数。
+  - `windowsObserved()`・`windowsSinceReset()`: 直近のリセットからできた窓の数。そのうち追加され、その後取り除かれていないものの数。
+  - `appendedWindowsSince(first)`: リングの新しい側から数えて、窓 `first` 以降から来た項目がいくつ続くか (そうでない項目に当たったところで止まる)。
+  - `removeRecentWindows(count)`: リングと索引から新しい項目を最大 `count` 個取り除く。`windowsSinceReset()` とリングにある数を超えないので、シードの項目は取らない。取り除いたそれぞれの平均二乗を古い順に返す。
+
+<a id="worklet"></a>
+### `audio-worklet.js`
+
+`k-mean-square` プロセッサー。コンテキストのレートで `processorOptions.blockSec` 秒 (0 より大きい数でなければ 0.1 秒、最低 64 サンプル) のブロックごとに、L² + R² の平均を `{ ms, samples }` として送る。モノラルの入力は 1 つのチャンネルを両側に数える。入力の無いレンダー量子は、すでに測ったブロックの途中までを捨てない。ページのコンテキストへ読み込む拡張は、これを `web_accessible_resources` に載せる。
+
 <a id="mutation"></a>
 ## 変異テスト: `tools/mutation/`
 
@@ -99,7 +129,7 @@
 <a id="coverage"></a>
 ## カバレッジの報告: `tools/coverage/v8-to-lcov.mjs`
 
-`v8-to-lcov.mjs <coverage dir> <lcov out> <source>…` は、`NODE_V8_COVERAGE` に V8 が残したカバレッジを、指定したソースの lcov の報告にする。ソースは、それを読み込んだ文脈を問わず、それから作られたすべてのスクリプトから数える (`file:` の URL は自分のパスを指すもの、それ以外の URL は名前で終わるもの)。本文の長さがソースと違うスクリプトからは数えない。行の中のどこかが走れば走った行とし、走っていない部分があれば通らなかった分岐として報告する。空行とコメントだけの行は報告しない。どこからも読み込まれなかったソースは、全行を走っていないものとして報告する。共通の `ci.yaml` は、`pack.py --list` が梱包する JS ファイルのうち `core/` 以外を指定する (`core/` はこのリポジトリのテストが受け持つ)。
+`v8-to-lcov.mjs <coverage dir> <lcov out> <source>…` は、`NODE_V8_COVERAGE` に V8 が残したカバレッジを、指定したソースの lcov の報告にする。ソースは、それを読み込んだ文脈を問わず、それから作られたすべてのスクリプトから数える (`file:` の URL は自分のパスを指すもの、それ以外の URL は名前で終わるもの)。本文の長さがソースと違うスクリプトからは数えない。行の中のどこかが走れば走った行とし、走っていない部分があれば通らなかった分岐として報告する。空行とコメントだけの行は報告しない。どこからも読み込まれなかったソースは、全行を走っていないものとして報告する。共通の `ci.yaml` は、`pack.py --list` が梱包する JS ファイルのうち `core/` と `audio-worklet.js` 以外を指定する (この 2 つはこのリポジトリのテストが受け持つ)。
 
 <a id="package"></a>
 ## パッケージとアイコン: `pack.py`・`gen_icons.py`

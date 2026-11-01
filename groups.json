@@ -12,6 +12,10 @@
     "tools/mutation/sweep-all.sh",
     "tools/mutation/sweep.mjs"
   ],
+  "measure": [
+    "audio-worklet.js",
+    "core/loudness.js"
+  ],
   "release": [
     ".github/workflows/release.yaml",
     ".github/workflows/tag-release.yaml",
