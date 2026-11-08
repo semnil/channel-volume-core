@@ -62,7 +62,7 @@ PR とその push は GitHub App のトークンで行います。拡張機能�
 
 拡張機能の CI は `tools/check-shared.sh` を走らせます。これは記録したコミットをこのリポジトリから取り寄せ、それに対して `sync.mjs --check` を走らせます。
 
-Dependabot はこのリポジトリで走り、このリポジトリの workflow と `shared/.github/workflows` の workflow を見ます。拡張機能では Dependabot を走らせません。このリポジトリは共有の `dependabot-auto-merge.yml` を自分の `.github/workflows/dependabot-auto-merge.yml` として走らせます。そのため、Dependabot だけが書いたパッチ・マイナーの更新は、必須のチェック `Test 🧪` と `auto-merge` が通るとここでマージされます。`test/dependabot-auto-merge.test.cjs` は、`uses:` の行が指すコミットと版を除いて、この写しが共有のファイルと同じであることを確かめ、共有の workflow のテストをこの写しに対して走らせます。
+Dependabot はこのリポジトリで走り、このリポジトリの workflow と `shared/.github/workflows` の workflow を見ます。拡張機能では Dependabot を走らせません。このリポジトリは共有の `dependabot-auto-merge.yml` を自分の `.github/workflows/dependabot-auto-merge.yml` として走らせます。そのため、Dependabot だけが書いたパッチ・マイナーの更新は、必須のチェック `Test 🧪` と `auto-merge` が通るとここでマージされます。`test/dependabot-auto-merge.test.cjs` は、`uses:` の行が指すコミットと版を除いて、この写しが共有のファイルと同じであることを確かめ、共有の workflow のテストをこの写しに対して走らせます。このリポジトリの `.github/CODEOWNERS` は共有のものの写しです。そのため、Dependabot がここで開く pull request はどれも、所有者にレビューを依頼します。`test/codeowners.test.cjs` は、この写しが共有のファイルと同じであることを確かめます。
 
 ## テスト
 
