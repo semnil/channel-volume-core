@@ -540,12 +540,23 @@ test('levelAboveFloor takes a finite level above -45.6 LUFS and no other', () =>
   }
 });
 
+test('gainTookNoLevel holds a gain stored beside a measurement at or below the floor to be no level', () => {
+  const c = load();
+  assert.equal(c.gainTookNoLevel(-60), true);
+  assert.equal(c.gainTookNoLevel(-45.6), true, 'on the floor');
+  assert.equal(c.gainTookNoLevel(-45.5), false, 'a level above it');
+  assert.equal(c.gainTookNoLevel(-10), false);
+  for (const bad of [undefined, null, NaN, -Infinity, Infinity, '-60']) {
+    assert.equal(c.gainTookNoLevel(bad), false, String(bad));
+  }
+});
+
 test('the floor of a level is the gate the meter holds', () => {
   const c = load();
   const meter = vm.createContext({});
   vm.runInContext(fs.readFileSync(shared('core', 'loudness.js'), 'utf8'), meter, { filename: 'core/loudness.js' });
   const L = vm.runInContext('channelVolumeLoudness', meter);
-  assert.equal(vm.runInContext('LEVEL_FLOOR_LKFS', c), L.ABSOLUTE_GATE_LUFS);
+  assert.equal(vm.runInContext('LEVEL_FLOOR_LKFS', c), L.LEVEL_FLOOR_LUFS);
 });
 
 test('AUTO_FOLLOW_INTERVAL_MS lets Auto follow a moving level once a second', () => {
