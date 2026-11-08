@@ -46,6 +46,7 @@
 - `gainToPercent`・`percentToGain`・`gainToDb`・`formatGain`・`formatGainText`・`formatAutoGain`: ゲインを % や dB にしたり戻したりする。表示単位での数と単位、1 つの文字列、Auto での見せ方 (保存ゲインが無ければ `Auto (—)`)。
 - `gainForLevel`: レベルを目標へ合わせるゲイン。`10^((目標 - レベル) / 20)` をゲインの範囲に収め、有限でなければ 1。
 - `AUTO_FOLLOW_INTERVAL_MS` (1000 ms): 再生中に動くレベルから Auto がゲインを決め直す最短の間隔。
+- `LEVEL_FLOOR_LKFS` (-45.6) と `levelAboveFloor`: 床以下のレベルは「レベル無し」。最大のゲイン (+15.56 dB) でも最低の Target LUFS (-30) に届かないため。`levelAboveFloor` は、有限の数で床より大きいレベルをそのまま返し、それ以外は null を返す。メーターの絶対ゲート (`ABSOLUTE_GATE_LUFS`) は同じ数で、テストが両者の一致を確かめる。
 
 <a id="pages"></a>
 ### ページ
@@ -94,11 +95,11 @@
 - `meanSquareToLufs`: `-0.691 + 10 log10(ms)`。0 より大きい有限の数でなければ `-Infinity`。
 - `normalizeForVolume`: 要素自身の音量より手前で取ったブロックを、音量が 0 と 1 の間 (両端は含まない) なら音量の 2 乗で割る。それ以外はそのまま返す。
 - `WORKLET_PROCESSOR`・`buildChain`: `audio-worklet.js` がプロセッサーを登録する名前。ソースノードから、コンテキストのレートに合わせた 2 つのフィルターを通ってそのプロセッサーの `AudioWorkletNode` へ至り (ポートのメッセージ処理は `onBlock`)、そこからゲイン 0 を経て出力先へつながるチェーン。測定の経路は出力に何も足さない。worklet のノードを返す。呼び出し側は先に `audio-worklet.js` をコンテキストへ読み込んでおく。
-- `BLOCK_SEC` (0.1 秒)・`MOMENTARY_BLOCKS` (4)・`SHORT_BLOCKS` (30)・`GATE_BLOCKS` (4)・`MAX_INTEGRATED_BLOCKS` (36000、1 時間分の窓)・`MIN_SEED_WINDOWS` (300) と `MAX_SEED_WINDOWS` (1800)・`BOUNDARY_SKIP_BLOCKS` (4): worklet に頼むブロックの長さ、Momentary と Short-term を読むブロック数、ゲーティング窓 1 つのブロック数 (BS.1770-4 の 75% 重なる 400 ms の窓。ブロックごとに 1 窓)、リングが持つ窓の数、シードの下限と上限、境界が外す窓の数。
+- `BLOCK_SEC` (0.1 秒)・`MOMENTARY_BLOCKS` (4)・`SHORT_BLOCKS` (30)・`GATE_BLOCKS` (4)・`MAX_INTEGRATED_BLOCKS` (36000、1 時間分の窓)・`MIN_SEED_WINDOWS` (300) と `MAX_SEED_WINDOWS` (1800)・`ABSOLUTE_GATE_LUFS` (-45.6: これ以下の窓は Integrated に入らず、これ以下のシードは重みを持たない)・`BOUNDARY_SKIP_BLOCKS` (4): worklet に頼むブロックの長さ、Momentary と Short-term を読むブロック数、ゲーティング窓 1 つのブロック数 (BS.1770-4 の 75% 重なる 400 ms の窓。ブロックごとに 1 窓)、リングが持つ窓の数、シードの下限と上限、境界が外す窓の数。
 - `createMeter`: 1 つの測定。
-  - `addBlock(ms, hold)`: worklet からのブロック。測る基準の音量へすでに換算したもの。`momentary` と `shortTerm` (直近 4 ブロックと 30 ブロック、足りなければあるだけの平均を LUFS で)、`window` (直近 4 ブロックの平均、つまりこのブロックで完成したゲーティング窓。4 ブロックに満たなければ `null`)、`skipped` (境界のスキップがその窓を取ったか)、`integrated` (`{ lufs, windows }`) を返す。窓はどう扱われても観測済みとして数え、直近のリセットから 1 始まりの番号が付く。`hold` のときは追加せず、境界のスキップもそのまま残す。そうでなく境界のスキップが進行中なら、スキップがその窓を取って残りを 1 減らす。どちらでもなければリングに追加する。リングは `MAX_INTEGRATED_BLOCKS` 個を持つと最も古いものを手放す。絶対ゲート (-70 LUFS) 以上の窓は索引にも入れる。
-  - Integrated は、索引にある窓のうち相対ゲート (索引の平均より 10 LU 下) 以上のものの平均で、索引が空なら `-Infinity`。その `windows` は相対ゲートの内側にある窓の数で、シードが両方のゲートの内側にあるとき、シードの分は渡された数として数える。`MAX_SEED_WINDOWS` を上限とする。索引は部分木の和と数を持つ平衡木で、レベルがどの順で来ても O(log n) でゲートを読める。
-  - `reset(lufs, windows)`: ブロックとリングを空にし、窓の番号を 1 から振り直す。`lufs` が有限のレベルで、その平均二乗も有限なら、シードを `max(MIN_SEED_WINDOWS, claimed)` 個の番号 0 の項目として置く。`claimed` は、`windows` が正の安全な整数なら `MAX_SEED_WINDOWS` を上限としたその数、それ以外は 0。絶対ゲートより下のシードは索引に入らない。進行中の境界のスキップは続く。
+  - `addBlock(ms, hold)`: worklet からのブロック。測る基準の音量へすでに換算したもの。`momentary` と `shortTerm` (直近 4 ブロックと 30 ブロック、足りなければあるだけの平均を LUFS で)、`window` (直近 4 ブロックの平均、つまりこのブロックで完成したゲーティング窓。4 ブロックに満たなければ `null`)、`skipped` (境界のスキップがその窓を取ったか)、`integrated` (`{ lufs, windows }`) を返す。窓はどう扱われても観測済みとして数え、直近のリセットから 1 始まりの番号が付く。`hold` のときは追加せず、境界のスキップもそのまま残す。そうでなく境界のスキップが進行中なら、スキップがその窓を取って残りを 1 減らす。どちらでもなければリングに追加する。リングは `MAX_INTEGRATED_BLOCKS` 個を持つと最も古いものを手放す。絶対ゲート (`ABSOLUTE_GATE_LUFS`) より大きい窓は索引にも入れる。
+  - 索引には絶対ゲート (`ABSOLUTE_GATE_LUFS`) より大きい窓が入る。Integrated は、索引にある窓のうち相対ゲート (索引の平均より 10 LU 下) 以上のものの平均で、索引が空なら `-Infinity`。その `windows` は相対ゲートの内側にある窓の数で、シードが両方のゲートの内側にあるとき、シードの分は渡された数として数える。`MAX_SEED_WINDOWS` を上限とする。索引は部分木の和と数を持つ平衡木で、レベルがどの順で来ても O(log n) でゲートを読める。
+  - `reset(lufs, windows)`: ブロックとリングを空にし、窓の番号を 1 から振り直す。`lufs` が有限のレベルで、その平均二乗も有限なら、シードを `max(MIN_SEED_WINDOWS, claimed)` 個の番号 0 の項目として置く。`claimed` は、`windows` が正の安全な整数なら `MAX_SEED_WINDOWS` を上限としたその数、それ以外は 0。絶対ゲート以下のシードは索引に入らない。進行中の境界のスキップは続く。
   - `clearBlocks()`: 次のゲーティング窓を次のブロックから始める。Integrated はそのまま。
   - `skipBoundary()`・`boundaryWindowsLeft()`: この後の、`hold` でない `BOUNDARY_SKIP_BLOCKS` 個の窓を Integrated から外す。スキップが進行中なら残りを満数に戻す。残りの数。
   - `windowsObserved()`・`windowsSinceReset()`: 直近のリセットからできた窓の数。そのうち追加され、その後取り除かれていないものの数。

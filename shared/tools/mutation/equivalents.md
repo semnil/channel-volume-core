@@ -24,7 +24,7 @@ Without it, an entry with none goes on: `Number.isFinite(undefined)` is false,
 so no slot is written, and `delete entry.gain` on a key that is not there is a
 no-op — the same entry comes back, unchanged.
 
-- `shared/core/common.js:290` a guard is dropped ×1 — if (!Object.prototype.hasOwnProperty.call(entry, 'gain')) return entry;
+- `shared/core/common.js:300` a guard is dropped ×1 — if (!Object.prototype.hasOwnProperty.call(entry, 'gain')) return entry;
 
 ## shared/core/loudness.js
 
@@ -39,9 +39,9 @@ tenth of the mean of what passed the absolute gate, which the largest of those
 windows is at or above, so the index it walks is never left empty. The
 instrumented copy threw at each of the three, and none threw.
 
-- `shared/core/loudness.js:159` a guard is dropped ×1 — if (!node) return null;
-- `shared/core/loudness.js:230` a guard is dropped ×1 — if (list.length === 0) return -Infinity;
-- `shared/core/loudness.js:301` a guard is dropped ×1 — if (gated.count === 0) return { lufs: -Infinity, windows: 0 };
+- `shared/core/loudness.js:162` a guard is dropped ×1 — if (!node) return null;
+- `shared/core/loudness.js:233` a guard is dropped ×1 — if (list.length === 0) return -Infinity;
+- `shared/core/loudness.js:304` a guard is dropped ×1 — if (gated.count === 0) return { lufs: -Infinity, windows: 0 };
 
 The empty index's exit. Without it the mean is `0 / 0`, the relative gate
 `NaN`, and the walk of an empty index answers a count of 0, which takes the
@@ -49,7 +49,7 @@ next exit with the same answer. The instrumented copy took the unguarded path
 beside the guarded one each of the 129 times the exit was reached and found a
 count of 0 every time.
 
-- `shared/core/loudness.js:297` a guard is dropped ×1 — if (absoluteGatedCount === 0) return { lufs: -Infinity, windows: 0 };
+- `shared/core/loudness.js:300` a guard is dropped ×1 — if (absoluteGatedCount === 0) return { lufs: -Infinity, windows: 0 };
 
 `removeTreeValue`'s shortcut for a node with no left child. Without it the
 node takes its successor's key and count and the successor leaves the right
@@ -58,7 +58,7 @@ answers. The instrumented copy ran that path on a copy of the node wherever
 the shortcut was taken with a right child, and the levels and counts were the
 same every time.
 
-- `shared/core/loudness.js:201` a guard is dropped ×1 — if (!node.left) return node.right;
+- `shared/core/loudness.js:204` a guard is dropped ×1 — if (!node.left) return node.right;
 
 The block trim. Momentary, Short-term and the gating window read the last 30
 blocks at most, so what the trim drops is never read, and with a short list
@@ -66,8 +66,8 @@ the splice count is negative and removes nothing. The instrumented copy kept
 every block beside the trimmed list and read the three from both on every
 block (the list was trimmed 146572 times): they were the same numbers.
 
-- `shared/core/loudness.js:320` a guard body is dropped ×1 — if (blocks.length > Math.max(MOMENTARY_BLOCKS, SHORT_BLOCKS) * 4) {
-- `shared/core/loudness.js:320` a guard is always taken ×1 — if (blocks.length > Math.max(MOMENTARY_BLOCKS, SHORT_BLOCKS) * 4) {
+- `shared/core/loudness.js:323` a guard body is dropped ×1 — if (blocks.length > Math.max(MOMENTARY_BLOCKS, SHORT_BLOCKS) * 4) {
+- `shared/core/loudness.js:323` a guard is always taken ×1 — if (blocks.length > Math.max(MOMENTARY_BLOCKS, SHORT_BLOCKS) * 4) {
 
 The removal of a window under the absolute gate from the index. Such a window
 was never put there, and every level the index holds is above it, so the walk
@@ -75,7 +75,7 @@ goes left to an empty node and the tree comes back as it was. The instrumented
 copy removed it from a copy of the index and compared the two, node by node,
 at the one such removal the tests make: they were the same.
 
-- `shared/core/loudness.js:360` a guard is always taken ×1 — if (ms >= ABSOLUTE_GATE_MEAN_SQUARE) {
+- `shared/core/loudness.js:363` a guard is always taken ×1 — if (aboveAbsoluteGate(ms)) {
 
 ## shared/tools/mutation/bail.mjs
 
