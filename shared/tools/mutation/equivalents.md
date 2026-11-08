@@ -24,7 +24,7 @@ Without it, an entry with none goes on: `Number.isFinite(undefined)` is false,
 so no slot is written, and `delete entry.gain` on a key that is not there is a
 no-op — the same entry comes back, unchanged.
 
-- `shared/core/common.js:308` a guard is dropped ×1 — if (!Object.prototype.hasOwnProperty.call(entry, 'gain')) return entry;
+- `shared/core/common.js:307` a guard is dropped ×1 — if (!Object.prototype.hasOwnProperty.call(entry, 'gain')) return entry;
 
 ## shared/core/loudness.js
 

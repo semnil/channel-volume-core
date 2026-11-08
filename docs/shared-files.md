@@ -46,7 +46,7 @@ A classic script each extension loads ahead of its own scripts, wherever its `ut
 - `gainToPercent`, `percentToGain`, `gainToDb`, `formatGain`, `formatGainText`, `formatAutoGain`: a gain as a percent or in dB and back, as a number and a unit in the display unit, as one text, and as Auto shows it (`Auto (—)` where no gain is stored).
 - `gainForLevel`: the gain that takes a level to the target, `10^((target - level) / 20)` within the gain range, and 1 where that is not finite.
 - `AUTO_FOLLOW_INTERVAL_MS` (1000 ms): how often, at most, Auto sets the gain from a level that moves while it plays.
-- `LEVEL_FLOOR_LKFS` (-45.6) and `levelAboveFloor`: a level at or below the floor is no level, since the largest gain (+15.56 dB) does not take it to the lowest Target LUFS (-30); `levelAboveFloor` answers the level where it is a finite number above the floor and null otherwise. The meter's `LEVEL_FLOOR_LUFS` is the same number, held equal by a test. `gainTookNoLevel`: whether a gain stored beside a measurement at or below the floor came from it (the gain's version is not higher than the measurement's), and so is no level either.
+- `LEVEL_FLOOR_LKFS` (-45.6) and `levelAboveFloor`: a level at or below the floor is no level, since the largest gain (+15.56 dB) does not take it to the lowest Target LUFS (-30); `levelAboveFloor` answers the level where it is a finite number above the floor and null otherwise. The meter's `LEVEL_FLOOR_LUFS` is the same number, held equal by a test. `gainTookNoLevel`: whether a gain stored beside a measurement is held to be no level, which it is where the measurement is at or below the floor, until a measurement above it is stored.
 
 <a id="pages"></a>
 ### Pages

@@ -540,17 +540,14 @@ test('levelAboveFloor takes a finite level above -45.6 LUFS and no other', () =>
   }
 });
 
-test('gainTookNoLevel holds a gain saved with a measurement at or below the floor to be no level', () => {
+test('gainTookNoLevel holds a gain stored beside a measurement at or below the floor to be no level', () => {
   const c = load();
-  assert.equal(c.gainTookNoLevel(-60, 5, 5), true, 'saved together');
-  assert.equal(c.gainTookNoLevel(-45.6, 5, 5), true, 'on the floor');
-  assert.equal(c.gainTookNoLevel(-45.5, 5, 5), false, 'a level above it');
-  assert.equal(c.gainTookNoLevel(-60, 4, 5), true, 'before the measurement');
-  assert.equal(c.gainTookNoLevel(-60, 6, 5), false, 'after it, the gain is its own');
-  assert.equal(c.gainTookNoLevel(-60, undefined, undefined), true, 'no versions kept');
-  assert.equal(c.gainTookNoLevel(-60, 0, 5), true, 'no version for the gain');
-  for (const bad of [undefined, null, NaN, -Infinity, '-60']) {
-    assert.equal(c.gainTookNoLevel(bad, 5, 5), false, String(bad));
+  assert.equal(c.gainTookNoLevel(-60), true);
+  assert.equal(c.gainTookNoLevel(-45.6), true, 'on the floor');
+  assert.equal(c.gainTookNoLevel(-45.5), false, 'a level above it');
+  assert.equal(c.gainTookNoLevel(-10), false);
+  for (const bad of [undefined, null, NaN, -Infinity, Infinity, '-60']) {
+    assert.equal(c.gainTookNoLevel(bad), false, String(bad));
   }
 });
 
