@@ -46,7 +46,7 @@
 - `gainToPercent`・`percentToGain`・`gainToDb`・`formatGain`・`formatGainText`・`formatAutoGain`: ゲインを % や dB にしたり戻したりする。表示単位での数と単位、1 つの文字列、Auto での見せ方 (保存ゲインが無ければ `Auto (—)`)。
 - `gainForLevel`: レベルを目標へ合わせるゲイン。`10^((目標 - レベル) / 20)` をゲインの範囲に収め、有限でなければ 1。
 - `AUTO_FOLLOW_INTERVAL_MS` (1000 ms): 再生中に動くレベルから Auto がゲインを決め直す最短の間隔。
-- `LEVEL_FLOOR_LKFS` (-45.6) と `levelAboveFloor`: 床以下のレベルは「レベル無し」。最大のゲイン (+15.56 dB) でも最低の Target LUFS (-30) に届かないため。`levelAboveFloor` は、有限の数で床より大きいレベルをそのまま返し、それ以外は null を返す。メーターの `LEVEL_FLOOR_LUFS` は同じ数で、テストが両者の一致を確かめる。
+- `LEVEL_FLOOR_LKFS` (-45.6) と `levelAboveFloor`: 床以下のレベルは「レベル無し」。最大のゲイン (+15.56 dB) でも最低の Target LUFS (-30) に届かないため。`levelAboveFloor` は、有限の数で床より大きいレベルをそのまま返し、それ以外は null を返す。メーターの `LEVEL_FLOOR_LUFS` は同じ数で、テストが両者の一致を確かめる。`gainTookNoLevel`: 床以下の測定と一緒に保存されたゲインが、その測定から出たもの (ゲインの版が測定の版より高くない) かを答える。そうならそのゲインもレベル無し。
 
 <a id="pages"></a>
 ### ページ
