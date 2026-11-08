@@ -62,7 +62,7 @@ In each extension, the App's client ID is the Actions variable `SYNC_APP_CLIENT_
 
 An extension's CI runs `tools/check-shared.sh`, which fetches the locked commit from this repository and runs `sync.mjs --check` against it.
 
-Dependabot runs here, over this repository's workflows and the ones under `shared/.github/workflows`; the extensions run none of their own.
+Dependabot runs here, over this repository's workflows and the ones under `shared/.github/workflows`; the extensions run none of their own. This repository runs the shared `dependabot-auto-merge.yml` as its own `.github/workflows/dependabot-auto-merge.yml`, so a patch or minor update Dependabot alone wrote merges here once the required checks `Test 🧪` and `auto-merge` pass. `test/dependabot-auto-merge.test.cjs` holds that copy to the shared file but for the commits and versions its `uses:` lines name, and runs the shared test of the workflow against it.
 
 ## Tests
 
