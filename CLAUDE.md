@@ -16,6 +16,7 @@ The files the channel-volume extensions share. Each extension carries a copy of 
 | `coverage-copies.mjs` | Run by CI ahead of the coverage report: in the V8 coverage the tests leave, a script run from a test's copy of a file under `shared/tools/mutation/` (`tools/mutation/<name>` in a `cv-…` box under the system's temporary directory) is given that shared file's URL, so `v8-to-lcov.mjs`, which counts a `file:` URL only where it names the source's own path, counts the run for it |
 | `shared/tools/mutation/equivalents.md` | This repository's record of the mutants its tests let through, with what was measured about each. `sweep.mjs` reads it from beside itself, so it sits under `shared/`, but no group carries it: each extension keeps its own record at that path, for its own sources |
 | `.github/dependabot.yml` | Dependabot for this repository's workflows and for `shared/.github/workflows`; the extensions run none |
+| `.github/workflows/dependabot-auto-merge.yml` | This repository's copy of `shared/.github/workflows/dependabot-auto-merge.yml`, which auto-merges a patch or minor update Dependabot alone wrote here. `test/dependabot-auto-merge.test.cjs` holds it to the shared file but for the commits and versions its `uses:` lines name, and runs `shared/.github/tests/dependabot-auto-merge-test.sh` against it. A change to the shared file comes with the same change to the copy |
 
 An extension's `core.json`:
 
