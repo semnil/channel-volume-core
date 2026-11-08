@@ -545,7 +545,7 @@ test('the floor of a level is the gate the meter holds', () => {
   const meter = vm.createContext({});
   vm.runInContext(fs.readFileSync(shared('core', 'loudness.js'), 'utf8'), meter, { filename: 'core/loudness.js' });
   const L = vm.runInContext('channelVolumeLoudness', meter);
-  assert.equal(vm.runInContext('LEVEL_FLOOR_LKFS', c), L.ABSOLUTE_GATE_LUFS);
+  assert.equal(vm.runInContext('LEVEL_FLOOR_LKFS', c), L.LEVEL_FLOOR_LUFS);
 });
 
 test('AUTO_FOLLOW_INTERVAL_MS lets Auto follow a moving level once a second', () => {

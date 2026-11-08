@@ -33,15 +33,21 @@ function lufsOf(meanSquare) {
 }
 
 const meanSquareOf = (lufs) => Math.pow(10, (lufs + 0.691) / 10);
-const ABSOLUTE_GATE = meanSquareOf(-45.6);
+const ABSOLUTE_GATE = meanSquareOf(-70);
+const LEVEL_FLOOR = -45.6;
 const RING = 60 * 60 * 10;
 
-// BS.1770 gated loudness of a set of gating windows: the absolute gate at -45.6
-// LUFS (the gate of the standard is -70; windows at or below this one are
-// dropped), then the relative gate 10 LU under the mean of what passed it.
+// BS.1770 gated loudness of a set of gating windows: the absolute gate at -70
+// LUFS, then the relative gate 10 LU under the mean of what passed it; a result
+// at or below -45.6 LUFS is no level.
 function gatedLufs(windows) {
+  const lufs = standardGatedLufs(windows);
+  return lufs > LEVEL_FLOOR ? lufs : -Infinity;
+}
+
+function standardGatedLufs(windows) {
   const valid = windows.filter((ms) => Number.isFinite(ms) && ms > 0);
-  const passAbs = valid.filter((ms) => ms > ABSOLUTE_GATE);
+  const passAbs = valid.filter((ms) => ms >= ABSOLUTE_GATE);
   if (passAbs.length === 0) return -Infinity;
   const meanAbs = passAbs.reduce((s, v) => s + v, 0) / passAbs.length;
   const relGate = meanSquareOf(lufsOf(meanAbs) - 10);
@@ -470,24 +476,47 @@ test('the two-stage gate is kept incrementally, block by block', () => {
   }
 });
 
-test('the absolute gate keeps a window just above -45.6 LUFS and drops one on it', () => {
-  const at = last(feed(L.createMeter(), Array(4).fill(ABSOLUTE_GATE)));
-  assert.equal(at.integrated.lufs, -Infinity);
-  assert.equal(at.integrated.windows, 0);
-  const above = ABSOLUTE_GATE * (1 + 1e-9);
-  const over = last(feed(L.createMeter(), Array(4).fill(above)));
-  assertLufsClose(over.integrated.lufs, lufsOf(above));
-  assert.equal(over.integrated.windows, 1);
+// A programme whose quiet stretch sits between the absolute gate and the level
+// a programme is read at: the stretch's windows are no programme level, but the
+// mean the relative gate is taken from counts the ones the absolute gate keeps.
+const withQuietStretch = (quiet) => [
+  ...Array(13).fill(meanSquareOf(-25)),
+  ...Array(8).fill(meanSquareOf(-40)),
+  ...Array(53).fill(quiet)
+];
+
+test('the absolute gate keeps a window at -70 LUFS and drops one just under it', () => {
+  const at = withQuietStretch(ABSOLUTE_GATE);
+  const under = withQuietStretch(ABSOLUTE_GATE * (1 - 1e-6));
+  assertLufsClose(last(feed(L.createMeter(), at)).integrated.lufs, gatedLufs(gatingWindows(at)));
+  assertLufsClose(last(feed(L.createMeter(), under)).integrated.lufs, gatedLufs(gatingWindows(under)));
+  assert.ok(gatedLufs(gatingWindows(at)) < gatedLufs(gatingWindows(under)) - 1,
+    'what the gate keeps moves the level');
 });
 
-test('a level between the old gate of -70 and -45.6 LUFS is no level', () => {
-  const answer = last(feed(L.createMeter(), Array(8).fill(meanSquareOf(-60))));
-  assert.equal(answer.integrated.lufs, -Infinity);
-  assert.equal(answer.integrated.windows, 0);
+test('an Integrated level at or below -45.6 LUFS is no level', () => {
+  const quiet = last(feed(L.createMeter(), Array(8).fill(meanSquareOf(-60))));
+  assert.equal(quiet.integrated.lufs, -Infinity);
+  assert.equal(quiet.integrated.windows, 0);
+  const under = last(feed(L.createMeter(), Array(4).fill(meanSquareOf(-45.7))));
+  assert.equal(under.integrated.lufs, -Infinity);
+  assert.equal(under.integrated.windows, 0);
+  const above = last(feed(L.createMeter(), Array(4).fill(meanSquareOf(-45.5))));
+  assertLufsClose(above.integrated.lufs, lufsOf(meanSquareOf(-45.5)));
+  assert.equal(above.integrated.windows, 1);
 });
 
-test('the meter exports the gate it holds', () => {
-  assert.equal(L.ABSOLUTE_GATE_LUFS, -45.6);
+test('a programme with a quiet stretch is measured as the standard has it', () => {
+  // -36 and -46 LUFS stretches: the quieter one is a programme level, and an
+  // absolute gate at the floor would leave it out and read -36.
+  const blocks = [...Array(100).fill(meanSquareOf(-36)), ...Array(100).fill(meanSquareOf(-46))];
+  const answer = last(feed(L.createMeter(), blocks));
+  assertLufsClose(answer.integrated.lufs, gatedLufs(gatingWindows(blocks)));
+  assert.ok(answer.integrated.lufs < -38, `${answer.integrated.lufs}`);
+});
+
+test('the meter exports the floor it holds', () => {
+  assert.equal(L.LEVEL_FLOOR_LUFS, -45.6);
 });
 
 test('the relative gate moves as quieter windows arrive', () => {
@@ -640,17 +669,19 @@ test('a seed the relative gate leaves out is not counted', () => {
   assert.equal(answer.integrated.windows, 297);
 });
 
-test('a seed under the absolute gate weighs nothing and is not counted', () => {
-  const meter = L.createMeter();
-  meter.reset(-45.6, 1000);
-  const answer = last(feed(meter, Array(4).fill(0.25)));
-  assertLufsClose(answer.integrated.lufs, lufsOf(0.25));
-  assert.equal(answer.integrated.windows, 1);
+test('a seed at or below -45.6 LUFS lays nothing down', () => {
+  for (const seed of [-45.6, -50, -70, -1000]) {
+    const meter = L.createMeter();
+    meter.reset(seed, 1000);
+    const answer = last(feed(meter, Array(4).fill(0.25)));
+    assertLufsClose(answer.integrated.lufs, lufsOf(0.25), String(seed));
+    assert.equal(answer.integrated.windows, 1, String(seed));
+  }
 
-  // Just above the gate it is a level, and counted for what it claims.
-  const aboveGate = L.createMeter();
-  aboveGate.reset(-45.6 + 1e-4, 1000);
-  const silent = last(feed(aboveGate, Array(4).fill(0)));
+  // Just above it is a level, and counted for what it claims.
+  const aboveFloor = L.createMeter();
+  aboveFloor.reset(-45.6 + 1e-4, 1000);
+  const silent = last(feed(aboveFloor, Array(4).fill(0)));
   assertLufsClose(silent.integrated.lufs, -45.6 + 1e-4);
   assert.equal(silent.integrated.windows, 1000);
 });
@@ -827,12 +858,16 @@ test('a removal after the ring has turned over takes what the ring still holds',
   assert.equal(meter.addBlock(1.0, true).integrated.lufs, -Infinity);
 });
 
-test('a window just above the absolute gate leaves the index when removed', () => {
-  const above = ABSOLUTE_GATE * (1 + 1e-9);
+test('a window exactly on the absolute gate leaves the index when removed', () => {
+  const blocks = withQuietStretch(ABSOLUTE_GATE);
   const meter = L.createMeter();
-  assertLufsClose(last(feed(meter, Array(4).fill(above))).integrated.lufs, lufsOf(above));
-  meter.removeRecentWindows(1);
-  assert.equal(meter.addBlock(above, true).integrated.lufs, -Infinity);
+  feed(meter, blocks);
+  const removed = meter.removeRecentWindows(45);
+  assert.equal(removed.length, 45);
+  const answer = meter.addBlock(ABSOLUTE_GATE, true);
+  const kept = gatingWindows(blocks).slice(0, -45);
+  assertLufsClose(answer.integrated.lufs, gatedLufs(kept));
+  assert.ok(Math.abs(gatedLufs(kept) - gatedLufs(gatingWindows(blocks))) > 0.1, 'the removal moves the level');
 });
 
 test('a window under the absolute gate is removed from the ring alone', () => {

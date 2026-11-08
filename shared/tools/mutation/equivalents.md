@@ -66,8 +66,8 @@ the splice count is negative and removes nothing. The instrumented copy kept
 every block beside the trimmed list and read the three from both on every
 block (the list was trimmed 146572 times): they were the same numbers.
 
-- `shared/core/loudness.js:323` a guard body is dropped ×1 — if (blocks.length > Math.max(MOMENTARY_BLOCKS, SHORT_BLOCKS) * 4) {
-- `shared/core/loudness.js:323` a guard is always taken ×1 — if (blocks.length > Math.max(MOMENTARY_BLOCKS, SHORT_BLOCKS) * 4) {
+- `shared/core/loudness.js:325` a guard body is dropped ×1 — if (blocks.length > Math.max(MOMENTARY_BLOCKS, SHORT_BLOCKS) * 4) {
+- `shared/core/loudness.js:325` a guard is always taken ×1 — if (blocks.length > Math.max(MOMENTARY_BLOCKS, SHORT_BLOCKS) * 4) {
 
 The removal of a window under the absolute gate from the index. Such a window
 was never put there, and every level the index holds is above it, so the walk
@@ -75,7 +75,7 @@ goes left to an empty node and the tree comes back as it was. The instrumented
 copy removed it from a copy of the index and compared the two, node by node,
 at the one such removal the tests make: they were the same.
 
-- `shared/core/loudness.js:363` a guard is always taken ×1 — if (aboveAbsoluteGate(ms)) {
+- `shared/core/loudness.js:365` a guard is always taken ×1 — if (ms >= ABSOLUTE_GATE_MEAN_SQUARE) {
 
 ## shared/tools/mutation/bail.mjs
 
