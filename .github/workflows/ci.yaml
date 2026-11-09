@@ -55,9 +55,12 @@ jobs:
           node coverage-copies.mjs "$RUNNER_TEMP/v8-coverage"
           node shared/tools/coverage/v8-to-lcov.mjs "$RUNNER_TEMP/v8-coverage" "$RUNNER_TEMP/coverage.lcov" sync.mjs $(git ls-files 'shared/*.mjs' 'shared/*.js')
 
+      # A failed upload fails the job on a pull request and leaves it green on
+      # a push to main.
       - name: Upload Coverage ☂️
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         timeout-minutes: 5
+        continue-on-error: ${{ github.event_name != 'pull_request' }}
         with:
           files: ${{ runner.temp }}/coverage.lcov
           disable_search: true

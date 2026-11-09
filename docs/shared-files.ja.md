@@ -152,7 +152,7 @@
 <a id="workflows"></a>
 ## ほかのワークフロー
 
-- `ci.yaml`: `main` への push・`main` への PR・手動で走る。Python の構文の確認、写しの照合、拡張のテスト (あれば `test.js`・`test-navigation.js`・`test-screenshots.py`)、あればスクリーンショットの照合、Codecov へのカバレッジの報告。
+- `ci.yaml`: `main` への push・`main` への PR・手動で走る。Python の構文の確認、写しの照合、拡張のテスト (あれば `test.js`・`test-navigation.js`・`test-screenshots.py`)、あればスクリーンショットの照合、Codecov へのカバレッジの報告。報告に失敗すると、PR では走行が失敗し、`main` への push では走行は成功のままになる。
 - `sync-core.yaml`: このリポジトリの `main` を取り込む毎日の PR ([README](../README.ja.md))。
 - `dependabot-auto-merge.yml` とそのテスト: Dependabot だけが書いたパッチ・マイナーの更新を自動でマージする。
 - `.gitattributes`: 共通ファイルをすべて LF の改行で取り出す。

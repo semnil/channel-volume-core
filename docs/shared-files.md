@@ -152,7 +152,7 @@ Fetches the commit `core.json` locks from this repository and runs that commit's
 <a id="workflows"></a>
 ## The other workflows
 
-- `ci.yaml`: on a push to `main`, a pull request to it and by hand — the Python syntax check, the check of the copies, the extension's suites (`test.js`, `test-navigation.js` and `test-screenshots.py` where it has them), the screenshot check where it has one, and the coverage report uploaded to Codecov.
+- `ci.yaml`: on a push to `main`, a pull request to it and by hand — the Python syntax check, the check of the copies, the extension's suites (`test.js`, `test-navigation.js` and `test-screenshots.py` where it has them), the screenshot check where it has one, and the coverage report uploaded to Codecov. A failed upload fails the run on a pull request and leaves it green on a push to `main`.
 - `sync-core.yaml`: the daily pull request that takes this repository's `main` ([README](../README.md#changing-a-shared-file)).
 - `dependabot-auto-merge.yml` and its test: auto-merge for a patch or minor update Dependabot alone wrote.
 - `.gitattributes` checks every shared file out with LF line endings.
