@@ -143,13 +143,32 @@ test('a release is built from a commit that passed what CI runs', () => {
     assert.ok(at > -1, `the release build runs what CI runs: ${check}`);
     assert.ok(at < packs, `the release build runs ${check} before it packs`);
   }
-  // A failed upload ends the job, so every check runs ahead of it, and an upload
-  // that fails never hides whether the tree passes the checks.
+  // On a pull request a failed upload ends the job, so every check runs ahead of
+  // it, and an upload that fails never hides whether the tree passes the checks.
   const testJob = jobIn('ci.yaml', 'test');
   const uploads = testJob.indexOf('uses: codecov/codecov-action@');
   assert.ok(uploads > -1, 'the CI job uploads coverage');
   for (const check of ci) {
     assert.ok(testJob.indexOf(`run: ${check}`) < uploads, `CI runs ${check} before it uploads coverage`);
+  }
+});
+
+// Codecov reports codecov/project, a required check, once the upload has
+// arrived. A failed upload fails a pull request's run, so the run that lost it
+// is red, and leaves a push to main green, so tag-release, which waits for that
+// run to pass, does not wait on Codecov.
+test('a failed coverage upload fails a pull request and leaves a push to main green', () => {
+  const files = [
+    ['the shared ci.yaml', readWorkflow('ci.yaml')],
+    ["this repository's ci.yaml", fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yaml'), 'utf8')]
+  ];
+  for (const [what, text] of files) {
+    const uploads = text.split(/\n {6}- /).slice(1)
+      .filter((step) => /^\s*uses: codecov\/codecov-action@/m.test(step));
+    assert.equal(uploads.length, 1, `${what} uploads coverage in one step`);
+    assert.match(uploads[0], /^ {8}continue-on-error: \$\{\{ github\.event_name != 'pull_request' \}\}$/m, // docs/shared-files.md:155
+      `${what} lets the upload fail only off a pull request`);
+    assert.match(uploads[0], /^ {10}fail_ci_if_error: true$/m, `${what} fails the upload step when the upload fails`);
   }
 });
 
