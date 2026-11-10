@@ -7,7 +7,8 @@ const assert = require('node:assert/strict');
 const { test, after } = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFileSync, spawnSync } = require('node:child_process');
+const { execFileSync, spawn, spawnSync } = require('node:child_process');
+const { pathToFileURL } = require('node:url');
 const { shared, tempDir } = require('./helpers.cjs');
 
 const SWEEP = shared('tools', 'mutation', 'sweep.mjs');
@@ -69,6 +70,26 @@ const KILLS_ALL = 'const fs = require("fs");\nrequire("./src.js");\n'
 const WAITS = 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 4000);';
 const onDroppedBody = (then) => 'const fs = require("fs");\nrequire("./src.js");\n'
   + `if (fs.readFileSync("src.js", "utf8").includes("if (false) {")) { ${then} }\n`;
+// Adds a line to runs.log as it starts, then waits for a file named go before
+// it reads the source.
+const WAITS_FOR_GO = 'const fs = require("fs");\nfs.appendFileSync("runs.log", "run\\n");\n'
+  + 'const wait = setInterval(() => { if (fs.existsSync("go")) { clearInterval(wait); require("./src.js"); } }, 10);\n';
+// Loaded ahead of the sweep: sends SIGTERM to the sweep itself as soon as it
+// has created the tree's marker.
+const SIGNAL_AT_CLAIM = [
+  "import fs from 'node:fs';",
+  "import { syncBuiltinESMExports } from 'node:module';",
+  'const open = fs.openSync;',
+  'fs.openSync = function (file, ...rest) {',
+  '  const fd = open.call(this, file, ...rest);',
+  "  if (String(file).endsWith('.mutation-sweep-running')) process.kill(process.pid, 'SIGTERM');",
+  '  return fd;',
+  '};',
+  'syncBuiltinESMExports();',
+  ''
+].join('\n');
+const WINDOWS_SIGNALS = process.platform === 'win32'
+  && 'Windows ends a process a signal is sent to rather than handing the signal to its handler';
 
 // A git tree holding a copy of the sweeper, the source and whatever else the
 // case runs, all committed, since the sweep refuses a source that is not.
@@ -98,10 +119,28 @@ function box(files = {}) {
     sweep: (knobs = {}, ...command) => spawnSync('node',
       ['tools/mutation/sweep.mjs', '.', 'src.js', ...(command.length ? command : ['node', 'suite.js'])],
       { cwd: dir, encoding: 'utf8', env: envWith(knobs), timeout: TIMEOUT }),
+    // The sweep of `node suite.js`, started without waiting on it, with node's
+    // own options ahead of it.
+    start: (nodeArgs = []) => spawn('node',
+      [...nodeArgs, 'tools/mutation/sweep.mjs', '.', 'src.js', 'node', 'suite.js'],
+      { cwd: dir, env: envWith({}) }),
     has: (name) => fs.existsSync(path.join(dir, name)),
     read: (name) => fs.readFileSync(path.join(dir, name), 'utf8'),
     locked: () => fs.existsSync(path.join(dir, '.mutation-sweep-running'))
   };
+}
+
+// How a started sweep ended, and what it printed; one that outlasts TIMEOUT is
+// killed.
+function ended(child) {
+  const run = { stdout: '', stderr: '' };
+  child.stdout.setEncoding('utf8').on('data', (chunk) => { run.stdout += chunk; });
+  child.stderr.setEncoding('utf8').on('data', (chunk) => { run.stderr += chunk; });
+  const guard = setTimeout(() => child.kill('SIGKILL'), TIMEOUT);
+  return new Promise((resolve) => child.on('close', (status, signal) => {
+    clearTimeout(guard);
+    resolve({ ...run, status, signal });
+  }));
 }
 
 const listed = (run, verdict) => run.stdout.split('\n')
@@ -222,6 +261,33 @@ test('a suite that cannot be started, or that a signal takes, gives no verdict',
   assert.match(taken.stderr, /the control run was stopped by SIGKILL/);
   assert.equal(taken.stdout, '');
   untouched(b, 'a run a signal took');
+});
+
+test('a signal sent to the sweep alone ends it once the run in flight has ended', { skip: WINDOWS_SIGNALS }, async () => {
+  const b = box({ 'suite.js': WAITS_FOR_GO });
+  const runs = () => (b.has('runs.log') ? b.read('runs.log').split('\n').filter(Boolean).length : 0);
+  const sweep = b.start();
+  const result = ended(sweep);
+  while (runs() === 0 && sweep.exitCode === null) await new Promise((resolve) => setTimeout(resolve, 10));
+  sweep.kill('SIGTERM');
+  fs.writeFileSync(path.join(b.dir, 'go'), '');
+  const run = await result;
+  assert.ok(run.status === 130 && run.signal === null, JSON.stringify(run));
+  assert.match(run.stderr, /the sweep was stopped by SIGTERM/);
+  assert.equal(run.stdout, '', 'and lists nothing');
+  assert.equal(runs(), 1, 'and starts no run after the one in flight');
+  untouched(b, 'a sweep a signal ended');
+});
+
+test('a signal that reaches the sweep as it marks the tree ends it before anything runs', { skip: WINDOWS_SIGNALS }, async () => {
+  const b = box({ 'suite.js': WAITS_FOR_GO, 'signal-at-claim.mjs': SIGNAL_AT_CLAIM });
+  fs.writeFileSync(path.join(b.dir, 'go'), '');
+  const run = await ended(b.start(['--import', pathToFileURL(path.join(b.dir, 'signal-at-claim.mjs')).href]));
+  assert.ok(run.status === 130 && run.signal === null, JSON.stringify(run));
+  assert.match(run.stderr, /the sweep was stopped by SIGTERM/);
+  assert.equal(run.stdout, '', 'and lists nothing');
+  assert.equal(b.has('runs.log'), false, 'and runs nothing');
+  untouched(b, 'a sweep a signal ended as it marked the tree');
 });
 
 test('the marker is taken away only where it is still the one the sweep made', () => {
