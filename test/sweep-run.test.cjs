@@ -75,10 +75,12 @@ const onDroppedBody = (then) => 'const fs = require("fs");\nrequire("./src.js");
 const WAITS_FOR_GO = 'const fs = require("fs");\nfs.appendFileSync("runs.log", "run\\n");\n'
   + 'const wait = setInterval(() => { if (fs.existsSync("go")) { clearInterval(wait); require("./src.js"); } }, 10);\n';
 // Loaded ahead of the sweep: sends SIGTERM to the sweep itself as soon as it
-// has created the tree's marker.
-const SIGNAL_AT_CLAIM = [
+// has created the tree's marker. With fromIo, the sweep's own code starts only
+// once a file system callback has run, and runs from inside it.
+const signalAtClaim = (fromIo) => [
   "import fs from 'node:fs';",
   "import { syncBuiltinESMExports } from 'node:module';",
+  ...(fromIo ? ["await new Promise((resolve) => fs.stat('.', resolve));"] : []),
   'const open = fs.openSync;',
   'fs.openSync = function (file, ...rest) {',
   '  const fd = open.call(this, file, ...rest);',
@@ -281,16 +283,18 @@ test('a signal sent to the sweep alone ends it once the run in flight has ended'
   untouched(b, 'a sweep a signal ended');
 });
 
-test('a signal that reaches the sweep as it marks the tree ends it before anything runs', { skip: WINDOWS_SIGNALS }, async () => {
-  const b = box({ 'suite.js': WAITS_FOR_GO, 'signal-at-claim.mjs': SIGNAL_AT_CLAIM });
-  fs.writeFileSync(path.join(b.dir, 'go'), '');
-  const run = await ended(b.start(['--import', pathToFileURL(path.join(b.dir, 'signal-at-claim.mjs')).href]));
-  assert.ok(run.status === 130 && run.signal === null, JSON.stringify(run));
-  assert.match(run.stderr, /the sweep was stopped by SIGTERM/);
-  assert.equal(run.stdout, '', 'and lists nothing');
-  assert.equal(b.has('runs.log'), false, 'and runs nothing');
-  untouched(b, 'a sweep a signal ended as it marked the tree');
-});
+for (const [fromIo, where] of [[false, ''], [true, ', where the sweep starts from a file system callback']]) {
+  test(`a signal that reaches the sweep as it marks the tree ends it before anything runs${where}`, { skip: WINDOWS_SIGNALS }, async () => {
+    const b = box({ 'suite.js': WAITS_FOR_GO, 'signal-at-claim.mjs': signalAtClaim(fromIo) });
+    fs.writeFileSync(path.join(b.dir, 'go'), '');
+    const run = await ended(b.start(['--import', pathToFileURL(path.join(b.dir, 'signal-at-claim.mjs')).href]));
+    assert.ok(run.status === 130 && run.signal === null, JSON.stringify(run));
+    assert.match(run.stderr, /the sweep was stopped by SIGTERM/);
+    assert.equal(run.stdout, '', 'and lists nothing');
+    assert.equal(b.has('runs.log'), false, 'and runs nothing');
+    untouched(b, 'a sweep a signal ended as it marked the tree');
+  });
+}
 
 test('the marker is taken away only where it is still the one the sweep made', () => {
   // Another hand puts its own marker in place while the suite runs: a file of

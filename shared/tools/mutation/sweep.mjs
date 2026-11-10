@@ -14,8 +14,8 @@
 // a verdict: the source goes back and the exit is 130. The marker goes with it
 // where the source came back and stays where it did not. A signal sent to this
 // process alone ends the sweep the same way once the run in flight has ended:
-// the sweep gives the event loop a turn before its first run and after every
-// child it runs, and the handler runs there.
+// the sweep lets the event loop run before its first run and after every child
+// it runs, and the handler runs there.
 //
 // --verify writes nothing and runs no suite: it regenerates the mutants and
 // asks whether every entry in equivalents.md still names one. An entry that
@@ -377,8 +377,8 @@ const confirm = process.env.MUTATE_CONFIRM;
 // check, each mutant, and the same four on the confirming side. A signal is the
 // operator asking for the run to end, and the run ends: the source goes back,
 // the exit says it was interrupted, and the marker goes only where the source
-// came back. Each child is followed by a turn of the event loop, where a signal
-// sent to this process alone reaches its handler before the next child starts.
+// came back. Each child is followed by settle(), where a signal sent to this
+// process alone reaches its handler before the next child starts.
 async function ranAtAll(run, what) {
   const timedOut = run.error && run.error.code === 'ETIMEDOUT';
   if (!timedOut && run.signal) {
@@ -394,8 +394,12 @@ async function ranAtAll(run, what) {
   await settle();
   return run;
 }
+// Two turns of the event loop, not one. Code that runs from an I/O callback, as
+// the sweep's own top level can, has its first setImmediate run later in that
+// same turn, after the turn has read its signals; a signal that came before the
+// call reaches its handler in the second.
 function settle() {
-  return new Promise((resolve) => setImmediate(resolve));
+  return new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
 }
 
 // A sweep of a file the suite never loads reports every mutant as standing,

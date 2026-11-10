@@ -94,7 +94,7 @@ can fail; the signal handlers, registered ahead of the claim, reach `finish`
 only at a turn of the event loop, and the first comes once `guardTree` has
 returned; `--verify` exits without reaching `finish`. Measured with a copy
 that logs each call: across `test/sweep.test.cjs` and
-`test/sweep-run.test.cjs`, all passing, the function was called 39 times and
+`test/sweep-run.test.cjs`, all passing, the function was called 40 times and
 held a claimed marker every time.
 
 - `shared/tools/mutation/sweep.mjs:148` a guard is dropped ×1 — if (!claimed) return false;
