@@ -247,6 +247,13 @@ test('a tree already being swept is refused, and one nobody holds is named', () 
     const stale = box.sweep('src.js', 'node', 'suite.js');
     assert.equal(stale.status, 2, stale.stderr);
     assert.match(stale.stderr, /carries a marker from pid 999999 that is gone/);
+
+    // A marker that names no process, as one whose run ended before it wrote
+    // its line leaves it.
+    box.mark('');
+    const nameless = box.sweep('src.js', 'node', 'suite.js');
+    assert.equal(nameless.status, 2, nameless.stderr);
+    assert.match(nameless.stderr, /carries a marker from a process that is gone/);
   } finally {
     box.remove();
   }
