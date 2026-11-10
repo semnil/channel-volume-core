@@ -268,7 +268,9 @@ test('a signal sent to the sweep alone ends it once the run in flight has ended'
   const runs = () => (b.has('runs.log') ? b.read('runs.log').split('\n').filter(Boolean).length : 0);
   const sweep = b.start();
   const result = ended(sweep);
-  while (runs() === 0 && sweep.exitCode === null) await new Promise((resolve) => setTimeout(resolve, 10));
+  while (runs() === 0 && sweep.exitCode === null && sweep.signalCode === null) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
   sweep.kill('SIGTERM');
   fs.writeFileSync(path.join(b.dir, 'go'), '');
   const run = await result;
