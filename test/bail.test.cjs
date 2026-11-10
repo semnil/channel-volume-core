@@ -7,6 +7,7 @@ const { test } = require('node:test');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
+const { pathToFileURL } = require('node:url');
 const { shared, tempDir } = require('./helpers.cjs');
 
 const BAILER = shared('tools', 'mutation', 'bail.mjs');
@@ -86,9 +87,9 @@ for (const runner of RUNNERS) {
       const later = alive(processId) ? 'still there 10 s later' : `gone ${Date.now() - waitedFrom} ms later`;
       return `; still there 1 s on: [${own}]; its group: [${members.join(' | ')}]; ${later}`;
     };
-    const bail =(args, { during, env } = {}) => new Promise((resolve) => {
+    const bail =(args, { during, env, node = [] } = {}) => new Promise((resolve) => {
       const run = { stdout: '', stderr: '', timedOut: false };
-      const child = spawn('node', [BAILER, ...args], { cwd: box, env: env || process.env });
+      const child = spawn('node', [...node, BAILER, ...args], { cwd: box, env: env || process.env });
       child.stdout.setEncoding('utf8');
       child.stderr.setEncoding('utf8');
       child.stdout.on('data', (chunk) => { run.stdout += chunk; });
@@ -133,6 +134,24 @@ for (const runner of RUNNERS) {
       ].join('\n'));
       write('self-signal.js', "process.kill(process.pid, 'SIGTERM');\n" + forever);
       write('wait.js', "require('fs').writeFileSync('wait.pid', String(process.pid));\n" + forever);
+      // Loaded ahead of bail.mjs: the suite bail.mjs starts is started as
+      // asked, its process id written, and SIGTERM sent to bail.mjs itself
+      // before the start returns to it.
+      write('signal-at-start.mjs', [
+        "import childProcess from 'node:child_process';",
+        "import { writeFileSync } from 'node:fs';",
+        "import { syncBuiltinESMExports } from 'node:module';",
+        'const start = childProcess.spawn;',
+        'childProcess.spawn = function (...args) {',
+        '  const started = start.apply(this, args);',
+        "  writeFileSync('early.pid', String(started.pid));",
+        "  process.kill(process.pid, 'SIGTERM');",
+        '  return started;',
+        '};',
+        'syncBuiltinESMExports();',
+        ''
+      ].join('\n'));
+      write('early.js', forever);
       write('answers.js', [
         "require('fs').writeFileSync('answers.pid', String(process.pid));",
         `process.on('SIGTERM', () => { console.error(${JSON.stringify(runner.onTheWayOut)}); process.exit(0); });`,
@@ -209,13 +228,14 @@ for (const runner of RUNNERS) {
       // for that runner rather than as lines. A sweep starts the suite without it.
       const sweepEnv = { ...process.env };
       delete sweepEnv.NODE_TEST_CONTEXT;
-      const [passed, status, failed, nodeTest, signalled, stopped, answered, late, held, outlasted, unread, after, drained, drainedLate, badPattern, noCommand, unrunnable] = await Promise.all([
+      const [passed, status, failed, nodeTest, signalled, stopped, early, answered, late, held, outlasted, unread, after, drained, drainedLate, badPattern, noCommand, unrunnable] = await Promise.all([
         bail([pattern, 'node', 'pass.js']),
         bail([pattern, 'node', 'status.js']),
         bail([pattern, 'node', 'fail.js']),
         runner.nodeTest ? bail([pattern, 'node', 'node-test.js'], { env: sweepEnv }) : null,
         bail([pattern, 'node', 'self-signal.js']),
         bail([pattern, 'node', 'wait.js'], { during: signalOnce('wait.pid') }),
+        bail([pattern, 'node', 'early.js'], { node: ['--import', pathToFileURL(path.join(box, 'signal-at-start.mjs')).href] }),
         bail([pattern, 'node', 'answers.js'], { during: signalOnce('answers.pid') }),
         bail([pattern, 'node', 'gone.js'], {
           during: async (child, run) => {
@@ -261,6 +281,12 @@ for (const runner of RUNNERS) {
       const waitWhy = processIdIn('wait.pid') > 0 ? await goneOrWhy(processIdIn('wait.pid')) : '; no process id';
       assert.ok(waitWhy === '',
         `and reaches the suite (${processIdIn('wait.pid')}${waitWhy}; the run: ${JSON.stringify(stopped)})`);
+      assert.ok(!early.timedOut && early.status === null && early.signal === 'SIGTERM'
+        && early.stderr === 'bail.mjs: SIGTERM passed on to the suite\n',
+        `a signal that arrives as the suite is started is passed on to it, and ends the run by that signal (${JSON.stringify(early)})`);
+      const earlyWhy = processIdIn('early.pid') > 0 ? await goneOrWhy(processIdIn('early.pid')) : '; no process id';
+      assert.ok(earlyWhy === '',
+        `and the suite goes with it (${processIdIn('early.pid')}${earlyWhy}; the run: ${JSON.stringify(early)})`);
       assert.ok(!answered.timedOut && answered.status === null && answered.signal === 'SIGTERM',
         `a suite that answers the signal by exiting 0, a failure on its way out, still ends the run by it (${JSON.stringify(answered)})`);
       assert.ok(!late.timedOut && late.status === null && late.signal === 'SIGTERM'
@@ -299,7 +325,7 @@ for (const runner of RUNNERS) {
     } finally {
       // What a stop that did not take left running, and only where the process
       // under that process id is still the one these cases started.
-      for (const [name, started] of [['below.pid', 'setInterval'], ['fail.pid', 'fail.js'], ['node-test.pid', 'node-test.js'], ['wait.pid', 'wait.js'], ['answers.pid', 'answers.js'], ['left.pid', 'setInterval'], ['deaf-below.pid', 'deaf-below.js'], ['deaf.pid', 'setInterval'], ['deaf-suite.pid', 'deaf.js'], ['deaf-child.pid', 'setInterval'], ['unread.pid', 'unread.js']]) {
+      for (const [name, started] of [['below.pid', 'setInterval'], ['fail.pid', 'fail.js'], ['node-test.pid', 'node-test.js'], ['wait.pid', 'wait.js'], ['early.pid', 'early.js'], ['answers.pid', 'answers.js'], ['left.pid', 'setInterval'], ['deaf-below.pid', 'deaf-below.js'], ['deaf.pid', 'setInterval'], ['deaf-suite.pid', 'deaf.js'], ['deaf-child.pid', 'setInterval'], ['unread.pid', 'unread.js']]) {
         const processId = processIdIn(name);
         const now = processId && alive(processId) ? spawnSync('ps', ['-o', 'command=', '-p', String(processId)], { encoding: 'utf8' }).stdout || '' : '';
         if (now.includes(started)) process.kill(processId, 'SIGKILL');
