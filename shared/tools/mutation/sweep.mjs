@@ -97,7 +97,7 @@ try {
   try { process.kill(owner, 0); alive = true; } catch (_) {}
   console.error(alive
     ? `${tree} is already being swept by pid ${owner}; one sweep at a time per tree`
-    : `${tree} carries a marker from pid ${owner || 'a process'} that is gone; ` +
+    : `${tree} carries a marker from ${owner ? `pid ${owner}` : 'a process'} that is gone; ` +
       `the tree may hold a mutant it left behind. Check it, then remove ${marker}`);
   process.exit(2);
 }
