@@ -44,7 +44,11 @@ node shared/tools/coverage/v8-to-lcov.mjs <dir> coverage.lcov sync.mjs $(git ls-
 # process leaves it running past a timeout otherwise. When the file swept is
 # sweep.mjs or bail.mjs, run both from a clone of this repository rather than
 # from the tree being swept. MUTATE_TIMEOUT_MS=<n> gives each run n ms instead
-# of 180 s; the sweep's own tests use it to reach a hung run in seconds
+# of 180 s; the sweep's own tests use it to reach a hung run in seconds.
+# A sweep ended with kill -9 puts nothing back: restore the source in that tree
+# with git checkout -- <file> and remove .mutation-sweep-running from its root.
+# Do not edit a tree's tests while a sweep of that tree runs: the runs after
+# the edit hold the mutants to another suite than the ones before it
 node shared/tools/mutation/sweep.mjs <worktree> shared/tools/coverage/v8-to-lcov.mjs \
   node shared/tools/mutation/bail.mjs '^(✖|not ok) ' node --test test/coverage.test.cjs
 node <clone>/shared/tools/mutation/sweep.mjs <worktree> shared/tools/mutation/bail.mjs \
