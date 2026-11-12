@@ -1,10 +1,10 @@
-# 測定の決定
+# Measurement decisions
 
 [English](measurement.md)
 
 共通のメーターについて閉じた判断。メーターが何をするかは [shared-files.ja.md](../shared-files.ja.md#loudness) の「`core/loudness.js`」にある。下の 2 つは、メーターがここへ移る前に書かれていた twitch-channel-volume で決まった。シードから出た値をその拡張機能がどう見せるかは、その拡張機能の側に記録している。
 
-## シードの下限は、保存値が持つ窓数にかかわらず当てる
+## The seed's floor applies whatever window count the stored value carries
 
 - **決定** (2026-08-22): シードは `max(MIN_SEED_WINDOWS, 保存した窓数)` 個の窓として入れる。下限の 300 窓 (30 秒) は、窓数を持たない保存値だけでなく、それより小さい窓数を持つ保存値にも当てる ([twitch-channel-volume #16](https://github.com/semnil/twitch-channel-volume/pull/16))。
 - **却下した案**: 窓数を持たない保存値のときだけ下限を使う。2 つの形の違いが出るのは、保存した窓数が 300 より小さいときだけ。目標を -18 LUFS にして、両方の形で動かした結果:
@@ -13,6 +13,6 @@
 - **受け入れた代償**: 壊れた保存値は、1 分より長く残る。上の壊れた保存値の例では、ゲインが最初に動くのは約 87 秒後で、2 分後に 67%、10 分後に 116% になる (正しいのは約 190%)。症状として見ると「Auto が明らかに間違ったゲインを持ち続ける」形に見え、そこで思い付く直し方は、却下した形になる。
 - **覆す条件**: 下限と上限は、その症状の修正としては動かさない。どちらかを動かす提案は、コードを変える前に、問いとして挙げる。
 
-## シードの上限は 3 分
+## The seed's cap is three minutes
 
 - **決定** (2026-08-22): 上限は `MAX_SEED_WINDOWS` の 1800 窓。決定と理由は [twitch-channel-volume #16](https://github.com/semnil/twitch-channel-volume/pull/16) の「What changed」にある。
