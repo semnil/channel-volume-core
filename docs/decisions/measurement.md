@@ -10,7 +10,7 @@ Closed decisions about the shared meter. What the meter does is in [shared-files
 - **Rejected**: the floor only for a stored value with no window count. The two forms differ only where the stored count is under 300. Run against both, with the target at -18 LUFS:
   - A stored value from 5 seconds of watching (47 windows), and a stream that opens 12 dB lower for its first 10 seconds: the form taken keeps the gain near 100% throughout; the rejected one swings to 144% at 10 seconds.
   - A stored value that is broken (one window: 400 ms at -8 LUFS): the other way round. The form taken holds 32% for 60 seconds where about 190% is right; the rejected one is back within 10 seconds.
-- **Accepted cost**: a broken stored value stays for up to a minute. Seen as a symptom, it reads as Auto holding a gain that is plainly wrong, and the fix that suggests itself is the rejected form.
+- **Accepted cost**: a broken stored value stays for longer than a minute. In the broken case above the gain first moves after about 87 seconds, and is 67% after two minutes and 116% after ten, where about 190% is right. Seen as a symptom, it reads as Auto holding a gain that is plainly wrong, and the fix that suggests itself is the rejected form.
 - **Reopen when**: the floor and the cap are not moved by a fix for that symptom. A proposal to move either is put as a question before the code changes.
 
 ## The seed's cap is three minutes
