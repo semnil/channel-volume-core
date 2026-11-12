@@ -13,3 +13,9 @@ Closed decisions about the documents of this repository and of the extensions. T
 
 - **Decision** (2026-11-01): what the shared code and the shared tools do is written once, in `docs/shared-files.md` and `docs/shared-files.ja.md`, part by part, each part under a fixed `<a id>`. An extension's `CLAUDE.md` and its `docs/gain-change-and-save.md` pair say what that extension hands those parts and how it uses them, and link here for the rest. `test/docs.test.cjs` holds the document to every top-level name of `core/common.js` and holds the two languages to the same anchors ([#46](https://github.com/semnil/channel-volume-core/pull/46), [#47](https://github.com/semnil/channel-volume-core/pull/47), [yt-channel-volume #130](https://github.com/semnil/yt-channel-volume/pull/130), [twitch-channel-volume #141](https://github.com/semnil/twitch-channel-volume/pull/141)).
 - **History**: until then each extension's documents described the shared behaviour themselves.
+
+## The Japanese counterpart of a decision record keeps the English headings
+
+- **Decision** (2026-11-12): a decision record's Japanese counterpart, `docs/decisions/<subject>.ja.md`, has the headings of its English file, the same strings in the same order, here and in every extension. Only the body is Japanese. The decision does not cover `README.ja.md` and `docs/shared-files.ja.md`, which are not decision records; their headings are Japanese.
+- **Reason**: a section is named by one string in both languages, so a reference to it does not change with the language of the file it is written in or points into.
+- **History**: until then the Japanese records carried translated headings, 74 of them in the eight records here, and a Japanese record named a section of another by the translated heading.
