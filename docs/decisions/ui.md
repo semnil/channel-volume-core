@@ -22,7 +22,7 @@ Closed decisions about the popup and the settings page that hold for every exten
 
 ## Polling may write a control the viewer cannot operate
 
-- **Decision**: the rule is in `CLAUDE.md`, "Conventions": what decides is whether the viewer can operate the control at that moment, and one element is written by one path.
+- **Decision**: the rule is in `AGENTS.md`, "Conventions": what decides is whether the viewer can operate the control at that moment, and one element is written by one path.
 - **Reason**: the harm the general rule against polling a control guards against is a value pulled back in the middle of a drag. The popup sets `disabled` on the manual slider and the preset buttons while Auto holds the gain (`manualDisabled` in each extension's `popup.js`), and a disabled control takes no drag for a poll to pull back. For that time, bringing them to the gain in effect on each poll is the right thing: without the poll the gain plays at one value and the slider shows another.
 - **Harm recorded**: with the rule written as "an interactive element is never polled", the change that made the popup follow the gain while Auto is on was nearly judged a regression in review. In the same change the Current card was written from two paths, which review found; it is written from one ([twitch-channel-volume #4](https://github.com/semnil/twitch-channel-volume/pull/4)).
 
