@@ -105,7 +105,7 @@ function packsOnlyWhatLoads(withLinks) {
     seed('review-notes.txt');
     seed('README.md');
     seed('README.ja.md');
-    seed('CLAUDE.md');
+    seed('AGENTS.md');
     seed('PRIVACY_POLICY.md');
     seed('gen_icons.py');
     seed('gen_screenshots.py');

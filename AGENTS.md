@@ -70,7 +70,7 @@ python3 -B -c "import ast,pathlib; [ast.parse(p.read_text()) for p in pathlib.Pa
 
 ## Conventions
 
-- **Override of the global CLAUDE.md's 「ドキュメント」 language rule**: `README.md` is English and `README.ja.md` is its Japanese counterpart; `CLAUDE.md` is English only
+- **Override of the global CLAUDE.md's 「ドキュメント」 language rule**: `README.md` is English and `README.ja.md` is its Japanese counterpart; `AGENTS.md` is English only
 - A change to a file under `shared/` comes with its tests under `test/`, and with `docs/shared-files.md` and `docs/shared-files.ja.md` where it changes what a part does, in the same pull request. It reaches the extensions only through `sync.mjs` after it is merged here: each extension's Sync Core workflow runs it daily and opens the pull request (README.md, "Changing a shared file"), or it is run by hand
 - A change that moves a declaration out of an extension into `shared/core/` reaches that extension as one pull request holding both the copy of the shared file and the removal of the extension's own declaration. The scripts of one context share their top-level `const` and `let`, so the copy alone declares the name twice and the script that declares it again fails to load; the daily sync's pull request stops at the extension's CI until the removal is in it
 - A change to which scripts share a scope, to the order they are injected in, or to what the manifest makes one script depend on is loaded into a real Chrome (CDP `Extensions.loadUnpacked`) and seen to raise no exception before it merges, here and in an extension alike. The Node suites alone do not pass such a change
