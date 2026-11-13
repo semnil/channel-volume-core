@@ -2,7 +2,7 @@
 
 [English](page-errors.md)
 
-Chrome が拡張機能ごとに持つエラー一覧に、拡張機能が何を載せず、何を載せたままにするかについて閉じた判断。今有効な規則は、各拡張機能の `AGENTS.md` の「A page fetch nothing handles」と、[shared-files.ja.md](../shared-files.ja.md#gain) の「ゲイン」の `createUnaskedWriteReporter` にある。
+Chrome が拡張機能ごとに持つエラー一覧に、拡張機能が何を載せず、何を載せたままにするかについて閉じた判断。今有効な規則は、各拡張機能の `docs/design.md` の「A page fetch nothing handles」と、[shared-files.ja.md](../shared-files.ja.md#gain) の「ゲイン」の `createUnaskedWriteReporter` にある。
 
 ## A page request's failure is kept out of the error list by its stack
 

@@ -2,7 +2,7 @@
 
 [日本語](page-errors.ja.md)
 
-Closed decisions about what an extension keeps out of Chrome's error list for it, and what it lets through. The rules in force are in each extension's `AGENTS.md` ("A page fetch nothing handles") and in [shared-files.md](../shared-files.md#gain) (`createUnaskedWriteReporter`, under "Gain").
+Closed decisions about what an extension keeps out of Chrome's error list for it, and what it lets through. The rules in force are in each extension's `docs/design.md` ("A page fetch nothing handles") and in [shared-files.md](../shared-files.md#gain) (`createUnaskedWriteReporter`, under "Gain").
 
 ## A page request's failure is kept out of the error list by its stack
 

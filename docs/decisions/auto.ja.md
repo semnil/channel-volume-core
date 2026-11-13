@@ -2,7 +2,7 @@
 
 [English](auto.md)
 
-Auto がレベルからゲインを決めるやり方について閉じた判断。共通コードが何をするかは [shared-files.ja.md](../shared-files.ja.md#gain) の「ゲイン」と「`core/loudness.js`」に、各拡張機能がそれをどう使うかはその拡張機能の `AGENTS.md` にある。
+Auto がレベルからゲインを決めるやり方について閉じた判断。共通コードが何をするかは [shared-files.ja.md](../shared-files.ja.md#gain) の「ゲイン」と「`core/loudness.js`」に、各拡張機能がそれをどう使うかはその拡張機能の `docs/design.md` にある。
 
 ## Auto follows the level directly
 
@@ -16,7 +16,7 @@ Auto がレベルからゲインを決めるやり方について閉じた判断
 - **決定** (2026-11-08): -45.6 LUFS 以下のレベルは、レベル無しとして扱う。表示せず、Auto は追従せず、保存したゲインをかける。-45.6 は、最大のゲイン (+15.56 dB) をかけても最低の Target LUFS (-30) に届かなくなる境目。床は、Integrated のレベルとシード (`core/loudness.js` の `LEVEL_FLOOR_LUFS`) と、拡張機能がほかから受け取るレベル (`core/common.js` の `LEVEL_FLOOR_LKFS` と `levelAboveFloor`) に掛ける。2 つの数が同じであることはテストが見張る。窓ごとの絶対ゲートは -70 LUFS のまま ([#51](https://github.com/semnil/channel-volume-core/pull/51)、[#52](https://github.com/semnil/channel-volume-core/pull/52))。
 - **決定** (2026-11-08): 床以下の測定値の隣に保存された Auto のゲインは、そのバージョンにかかわらず使わない (`gainTookNoLevel`)。
 - **決定** (2026-11-08): yt-channel-volume は、無音を読み取ったら、手元のレベルと Auto が使うレベルの両方を消す。片方だけを残すと、Auto をオンにしたときに、古いレベルから出したゲインをかけて保存した ([yt-channel-volume #137](https://github.com/semnil/yt-channel-volume/pull/137))。
-- **理由**: 音源は、無音を、どのゲインでも届かないほど低いレベルとして知らせることがある (yt-channel-volume の `AGENTS.md` の「A live stream's own level」)。popup はそのレベルをラウドネスとして表示し、そのレベルが求めるゲインは有限の数にならないので、`gainForLevel` は 1 を返した。床や絶対ゲートを変えるときは、床を窓ごとに掛けない。理由は、下の却下した案の 1 つ目。
+- **理由**: 音源は、無音を、どのゲインでも届かないほど低いレベルとして知らせることがある (yt-channel-volume の `docs/design.md` の「A live stream's own level」)。popup はそのレベルをラウドネスとして表示し、そのレベルが求めるゲインは有限の数にならないので、`gainForLevel` は 1 を返した。床や絶対ゲートを変えるときは、床を窓ごとに掛けない。理由は、下の却下した案の 1 つ目。
 - **却下した案**: 床を窓ごとに掛ける。これが最初の形だった (#51)。静かな区間のある番組では、その区間の窓が外れ、Integrated のレベルが番組の実際より大きく読まれた。#52 で、床を Integrated のレベルとシードに掛ける形へ移した。Auto のゲインの隣に、そのゲインを計算したもとのレベルを保存して、レベルから出したゲインとそうでないゲインを見分ける。変更が大きいので採らなかった。
 - **受け入れた代償**: 床以下の測定値の隣にある、レベルから出した新しい Auto のゲインも、床より上の測定値が保存されるまで使われない。
 - **覆す条件**: 確認を 1 つ待っている。実際に無音の配信で、拡張機能を動かして確かめてはいない。無音の配信でラウドネスが表示された、または Auto がゲインを動かした、という報告が来たら見直す。twitch-channel-volume が床のために変えた行は、後から変異テストに掛け、生き残った変異は無かった。
