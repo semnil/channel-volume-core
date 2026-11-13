@@ -2,7 +2,7 @@
 
 [English](documentation.md)
 
-このリポジトリと各拡張機能の文書について閉じた判断。今有効な規則は `CLAUDE.md` の「Layout」と「Conventions」にある。
+このリポジトリと各拡張機能の文書について閉じた判断。今有効な規則は `AGENTS.md` の「Layout」と「Conventions」にある。
 
 ## `equivalents.md` has no Japanese version
 

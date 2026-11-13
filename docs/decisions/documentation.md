@@ -2,7 +2,7 @@
 
 [日本語](documentation.ja.md)
 
-Closed decisions about the documents of this repository and of the extensions. The rules in force are in `CLAUDE.md`, "Layout" and "Conventions".
+Closed decisions about the documents of this repository and of the extensions. The rules in force are in `AGENTS.md`, "Layout" and "Conventions".
 
 ## `equivalents.md` has no Japanese version
 
