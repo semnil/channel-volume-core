@@ -2,7 +2,7 @@
 
 [日本語](auto.ja.md)
 
-Closed decisions about how Auto sets the gain from a level. What the shared code does is in [shared-files.md](../shared-files.md#gain) ("Gain" and "`core/loudness.js`"); what an extension does with it is in that extension's `CLAUDE.md`.
+Closed decisions about how Auto sets the gain from a level. What the shared code does is in [shared-files.md](../shared-files.md#gain) ("Gain" and "`core/loudness.js`"); what an extension does with it is in that extension's `AGENTS.md`.
 
 ## Auto follows the level directly
 
@@ -16,7 +16,7 @@ Closed decisions about how Auto sets the gain from a level. What the shared code
 - **Decision** (2026-11-08): a level at or below -45.6 LUFS is held to be no level. It is not shown, Auto does not follow it, and the stored gain plays. -45.6 is where the largest gain (+15.56 dB) no longer takes a level to the lowest Target LUFS (-30). The floor is held on the Integrated level and on a seed (`LEVEL_FLOOR_LUFS` in `core/loudness.js`), and on a level an extension takes from elsewhere (`LEVEL_FLOOR_LKFS` and `levelAboveFloor` in `core/common.js`); a test holds the two numbers equal. Each window's absolute gate stays at -70 LUFS ([#51](https://github.com/semnil/channel-volume-core/pull/51), [#52](https://github.com/semnil/channel-volume-core/pull/52)).
 - **Decision** (2026-11-08): an Auto gain stored beside a measurement at or below the floor is not used, whatever its version (`gainTookNoLevel`).
 - **Decision** (2026-11-08): where yt-channel-volume reads silence, it drops both the level it holds and the level Auto uses. With one of the two left, turning Auto on played and saved a gain from the old level ([yt-channel-volume #137](https://github.com/semnil/yt-channel-volume/pull/137)).
-- **Reason**: a source can name silence as a level far below what any gain reaches (yt-channel-volume's `CLAUDE.md`, "A live stream's own level"). The popup showed that level as a loudness, and the gain it asks for is not a finite number, so `gainForLevel` answered 1. A change to the floor or to the absolute gate does not put the floor on each window; the first rejected form below is why.
+- **Reason**: a source can name silence as a level far below what any gain reaches (yt-channel-volume's `AGENTS.md`, "A live stream's own level"). The popup showed that level as a loudness, and the gain it asks for is not a finite number, so `gainForLevel` answered 1. A change to the floor or to the absolute gate does not put the floor on each window; the first rejected form below is why.
 - **Rejected**: the floor on each window, which was the first form (#51). In a programme with quiet stretches it left those windows out, and the Integrated level read louder than the programme is; #52 moved the floor to the Integrated level and the seed. Storing, beside an Auto gain, the level it was worked out from, so that a gain that took a level could be told from one that took none: not taken, for the size of the change.
 - **Accepted cost**: a newer Auto gain that did take a level, stored beside a measurement at or below the floor, is not used either until a measurement above the floor is stored.
 - **Reopen when**: one check is waited for. The extensions have not been run against a stream that is actually silent. A report that such a stream shows a loudness, or that Auto moved the gain on one, reopens this. The lines twitch-channel-volume changed for the floor were swept afterwards, and no mutant lived.
