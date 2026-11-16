@@ -23,14 +23,14 @@ Closed decisions about the paths by which a gain or a setting changes and is sav
 
 - **Decision** (2026-10-25): in yt-channel-volume, while a preview from the popup is playing, a gain that arrives for any other cause is not applied. At the end of the gesture — its `change` or save arriving, or the previews stopping — the content script compares with the newest stored value. After an action that was refused it applies the newest stored value and says so.
 - **Decision** (2026-10-25 to 2026-10-28): the gesture is not ended while the button or a key is held: the popup sends the preview again every second, and the content script ends the preview two seconds after the last one reached it.
-- **Decision** (2026-10-29): twitch-channel-volume takes the same form. A preview is not re-applied over by a change in storage — its own tab's save of the measurement was putting the stored gain back under a held key — and Auto's gain from the measurement is not applied during a preview.
+- **Decision** (2026-10-29): twitch-channel-volume takes the same form. A preview is not re-applied over by a change in storage — its own tab's periodic save (`saveMeasurement`) was putting the stored gain back under a held key — and Auto's gain from the Integrated value is not applied during a preview.
 - **Rejected**: having the popup ignore what arrives; both sides guarding. For the two-second end: playing whatever arrived in the meantime, or the preview, where nothing did; always going back to the stored value. For twitch-channel-volume: holding off until the save arrives, without the resend and the two-second end.
 
 ## A change the settings start is made again once where it was overtaken
 
 - **Decision** (2026-10-25): in yt-channel-volume, an apply started by a settings change and dropped because storage moved under it (`storageRevision`) is made once more after the reads settle. A save is not added to each channel notice to cover it.
-- **Decision** (2026-10-25): twitch-channel-volume marks, at start-up and at a navigation, that the seeded reset of the measurement is still owed (`seededResetPending`); while the mark stands, whichever re-read wins sends that reset.
-- **Decision** (2026-10-25 to 2026-10-28): the mark is also set where an owner event changes what is measured.
+- **Decision** (2026-10-25): twitch-channel-volume marks, at start-up and at a navigation, that the reset seeded with the stored LUFS is still owed (`seededResetPending`); while the mark stands, whichever re-read wins sends that reset.
+- **Decision** (2026-10-25 to 2026-10-28): the mark is also set where an owner event changes the channel the Integrated value is taken for (`currentMeasurementTarget`).
 - **Decision** (2026-10-25 to 2026-10-28): in twitch-channel-volume too, a re-read started by a settings change that was overtaken is made again once, with its save of Auto's gain, after things settle.
 - **Rejected**: leaving the overtaken re-read to the periodic save of the measurement; setting the mark at start-up and navigation alone.
 
@@ -60,7 +60,7 @@ Closed decisions about the paths by which a gain or a setting changes and is sav
 ## A write that changes nothing is left out
 
 - **Decision** (2026-10-25): a write whose content does not change is not made: in twitch-channel-volume the repeat of an owner event for the same owner, `normalizeChannels` over a state already in order, and a setting saved at the value it has; in every extension the button of the display unit already chosen.
-- **Decision** (2026-10-25): twitch-channel-volume's save of a gain at the value it has and its steady save of the measurement are still made: the version, the sequence number and `lastMeasuredAt` they move carry meaning.
+- **Decision** (2026-10-25): twitch-channel-volume's save of a gain at the value it has and its periodic save (`saveMeasurement`) of a stored LUFS that has not changed are still made: the version, the sequence number and `lastMeasuredAt` they move carry meaning.
 - **Rejected**: also leaving out a write that only advances a version.
 
 ## A settings change saves Auto's gain only where the target or Auto's default changed
@@ -70,7 +70,7 @@ Closed decisions about the paths by which a gain or a setting changes and is sav
 
 ## Only a tab that is playing writes
 
-- **Decision** (2026-10-25): where one channel is open in two tabs, only a tab whose media is neither paused nor muted makes Auto's own save (yt-channel-volume) and the save of the measurement (twitch-channel-volume). A volume of 0 — the element's, or the extension's gain at 0% — still counts as playing.
+- **Decision** (2026-10-25): where one channel is open in two tabs, only a tab whose media is neither paused nor muted makes Auto's own save (yt-channel-volume) and the periodic save `saveMeasurement` (twitch-channel-volume). A volume of 0 — the element's, or the extension's gain at 0% — still counts as playing.
 - **Decision** (2026-10-25 to 2026-10-28): in yt-channel-volume, a tab that begins to play after its last apply makes Auto's own save at the `play` event, not at the next apply.
 - **Decision** (2026-10-30): in twitch-channel-volume, the save of Auto's gain that a settings change starts is likewise sent by a playing tab alone.
 - **Rejected**: leaving the overwrite as the way it works; counting a tab at volume 0 as not playing.
