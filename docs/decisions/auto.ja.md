@@ -14,7 +14,7 @@ Auto がレベルからゲインを決めるやり方について閉じた判断
 ## A level at or below -45.6 LUFS is no level
 
 - **決定** (2026-11-08): -45.6 LUFS 以下のレベルは、レベル無しとして扱う。表示せず、Auto は追従せず、保存したゲインをかける。-45.6 は、最大のゲイン (+15.56 dB) をかけても最低の Target LUFS (-30) に届かなくなる境目。床は、Integrated のレベルとシード (`core/loudness.js` の `LEVEL_FLOOR_LUFS`) と、拡張機能がほかから受け取るレベル (`core/common.js` の `LEVEL_FLOOR_LKFS` と `levelAboveFloor`) に掛ける。2 つの数が同じであることはテストが見張る。窓ごとの絶対ゲートは -70 LUFS のまま ([#51](https://github.com/semnil/channel-volume-core/pull/51)、[#52](https://github.com/semnil/channel-volume-core/pull/52))。
-- **決定** (2026-11-08): 床以下の測定値の隣に保存された Auto のゲインは、そのバージョンにかかわらず使わない (`gainTookNoLevel`)。
+- **決定** (2026-11-08): 床以下のレベルの隣に保存された Auto のゲインは、そのバージョンにかかわらず使わない (`gainTookNoLevel`)。
 - **決定** (2026-11-08): yt-channel-volume は、無音を読み取ったら、手元のレベルと Auto が使うレベルの両方を消す。片方だけを残すと、Auto をオンにしたときに、古いレベルから出したゲインをかけて保存した ([yt-channel-volume #137](https://github.com/semnil/yt-channel-volume/pull/137))。
 - **理由**: 音源は、無音を、どのゲインでも届かないほど低いレベルとして知らせることがある (yt-channel-volume の `docs/design.md` の「A live stream's own level」)。popup はそのレベルをラウドネスとして表示し、そのレベルが求めるゲインは有限の数にならないので、`gainForLevel` は 1 を返した。床や絶対ゲートを変えるときは、床を窓ごとに掛けない。理由は、下の却下した案の 1 つ目。
 - **却下した案**: 床を窓ごとに掛ける。これが最初の形だった (#51)。静かな区間のある番組では、その区間の窓が外れ、Integrated のレベルが番組の実際より大きく読まれた。#52 で、床を Integrated のレベルとシードに掛ける形へ移した。Auto のゲインの隣に、そのゲインを計算したもとのレベルを保存して、レベルから出したゲインとそうでないゲインを見分ける。変更が大きいので採らなかった。
