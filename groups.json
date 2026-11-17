@@ -32,6 +32,8 @@
     ".github/CODEOWNERS",
     ".github/FUNDING.yml",
     ".github/ISSUE_TEMPLATE/bug_report.md",
-    ".github/ISSUE_TEMPLATE/feature_request.md"
+    ".github/ISSUE_TEMPLATE/feature_request.md",
+    ".github/tests/issue-auto-assign.test.cjs",
+    ".github/workflows/issue-auto-assign.yml"
   ]
 }

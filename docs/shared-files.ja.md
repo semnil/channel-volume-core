@@ -156,3 +156,4 @@
 - `sync-core.yaml`: このリポジトリの `main` を取り込む毎日の PR ([README](../README.ja.md))。
 - `dependabot-auto-merge.yml` とそのテスト: Dependabot だけが書いたパッチ・マイナーの更新を自動でマージする。
 - `.gitattributes`: 共通ファイルをすべて LF の改行で取り出す。
+- `issue-auto-assign.yml` と `.github/tests/issue-auto-assign.test.cjs` は `public` グループに含まれる。新しい Issue の担当者に `semnil` を追加し、既存の担当者は残す。固定の問い合わせ窓口 は除外する。Issue の編集・再オープンでは割り当てない。PR では読み取り専用のトークンでテストを実行する。割り当て用ジョブはリポジトリのコードを実行せず、`issues: write` だけを持つ。`GITHUB_TOKEN` で作成した Issue では起動しないため、その作成処理で `assignees: [semnil]` を指定する。

@@ -156,3 +156,4 @@ Fetches the commit `core.json` locks from this repository and runs that commit's
 - `sync-core.yaml`: the daily pull request that takes this repository's `main` ([README](../README.md#changing-a-shared-file)).
 - `dependabot-auto-merge.yml` and its test: auto-merge for a patch or minor update Dependabot alone wrote.
 - `.gitattributes` checks every shared file out with LF line endings.
+- `issue-auto-assign.yml` and `.github/tests/issue-auto-assign.test.cjs` belong to the `public` group. New issues receive `semnil` as an additional assignee; the permanent feedback entry points are excluded. Edited or reopened issues are not reassigned. Pull requests run the test with a read-only token; the assignment job runs no repository code and holds only `issues: write`. Issues created with `GITHUB_TOKEN` do not trigger this workflow; their creator must include `assignees: [semnil]` in the creation request.
